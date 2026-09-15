@@ -1,2 +1,3 @@
 # Slurm + vLLM output. Benchmark tables are promoted to results/ instead.
 logs/
+container/.build-run-*.sh

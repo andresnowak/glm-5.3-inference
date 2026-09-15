@@ -81,7 +81,16 @@ echo "  uccl: ${UCCL_REPO:-<Containerfile default>} @ ${UCCL_REF:-<Containerfile
 # --network=host per the CSCS docs: "Since 30.07.2026, directly invoking podman ... may
 # not work properly on some clusters. If the issue persists, try adding --network=host".
 # https://docs.cscs.ch/build-install/containers/
-podman build --network=host "${CACHE_ARGS[@]}" -f "${HERE}/Containerfile" -t "${TAG}" "${BUILD_ARGS[@]}" "${HERE}"
+# A --cache-to push failure is fatal to podman build, so a registry that dies mid-build
+# kills a build every layer of which was a cache hit. The cache is an optimization; never
+# let it fail the build.
+if ! podman build --network=host "${CACHE_ARGS[@]}" \
+       -f "${HERE}/Containerfile" -t "${TAG}" "${BUILD_ARGS[@]}" "${HERE}"; then
+  if [[ ${#CACHE_ARGS[@]} -eq 0 ]]; then exit 1; fi
+  echo "build failed with the layer cache attached; retrying without it" >&2
+  podman build --network=host \
+    -f "${HERE}/Containerfile" -t "${TAG}" "${BUILD_ARGS[@]}" "${HERE}"
+fi
 
 mkdir -p "$(dirname "${OUT}")"
 # Export to a temp file and rename on success, so an interrupted build cannot destroy a

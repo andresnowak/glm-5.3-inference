@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+
+# Published Alps ROCm vLLM image plus UCCL-EP's DeepEP-compatible backend.
+ARG BASE_IMAGE=jfrog.svc.cscs.ch/docker-group-csstaff/alps-images/vllm-rocm:alps7-dev
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+LABEL org.opencontainers.image.description="Alps ROCm vLLM + UCCL-EP for MI300A/gfx942"
+
+ENV PIP_INDEX_URL=https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple     PYTHONNOUSERSITE=1
+
+COPY patches/add_enable_shrink.py /opt/alps/add_enable_shrink.py
+COPY patches/fix_deepep_ht_cudagraph_guard.py /opt/alps/fix_deepep_ht_cudagraph_guard.py
+
+ARG UCCL_REPO=https://github.com/uccl-project/uccl.git
+ARG UCCL_REF=e22a3e8fcd636f7efbbd90900458087a41ff73ce
+ARG NANOBIND_VERSION=3.0.1
+ARG UCCL_GPU_ARCH=gfx942
+ARG UCCL_LOCAL_PEERS=4
+ARG UCCL_MAX_JOBS=16
+
+RUN set -eux;     source /opt/alps/package-helpers.sh;     build_deps=(build-essential git ninja-build pkg-config python3-dev       libibverbs-dev libnl-3-dev libnl-route-3-dev libnuma-dev);     snapshot_apt_packages /tmp/uccl-apt-before.txt;     apt_get update;     apt_get install -y --no-install-recommends "${build_deps[@]}";     rm -rf /var/lib/apt/lists/*;     source /opt/alps/env/alps-rocm-build.env;     export ROCM_HOME="${ROCM_BUILD_PREFIX}" ROCM_PATH="${ROCM_BUILD_PREFIX}";     export HIP_HOME="${ROCM_BUILD_PREFIX}" HIP_PATH="${ROCM_BUILD_PREFIX}";     export PATH="${ROCM_BUILD_PREFIX}/bin:${ROCM_BUILD_PREFIX}/llvm/bin:${PATH}";     pip_install python --no-cache-dir "nanobind==${NANOBIND_VERSION}";     site_dir="$(python -c 'import site; print(site.getsitepackages()[0])')";     rm -rf /tmp/uccl /tmp/uccl-build;     git init -q /tmp/uccl;     git -C /tmp/uccl remote add origin "${UCCL_REPO}";     git -C /tmp/uccl fetch -q --depth 1 origin "${UCCL_REF}";     git -C /tmp/uccl checkout -q FETCH_HEAD; mkdir -p "${site_dir}/uccl";     touch "${site_dir}/uccl/__init__.py";     pushd /tmp/uccl/ep; NUM_MAX_NVL_PEERS="${UCCL_LOCAL_PEERS}"     PYTORCH_ROCM_ARCH="${UCCL_GPU_ARCH}"     MAX_JOBS="${UCCL_MAX_JOBS}"     INSTALL_DIR="${site_dir}/uccl"     python setup.py build --build-base /tmp/uccl-build install;     popd;     rm -rf "${site_dir}/deep_ep";     cp -aL /tmp/uccl/ep/deep_ep_wrapper/deep_ep "${site_dir}/deep_ep";     python /opt/alps/add_enable_shrink.py "${site_dir}/deep_ep/buffer.py";     vllm_dir="$(python -c 'import importlib.util; print(importlib.util.find_spec("vllm").submodule_search_locations[0])')";     python /opt/alps/fix_deepep_ht_cudagraph_guard.py "${vllm_dir}/config/compilation.py";     test -n "$(find "${site_dir}/uccl" -maxdepth 1 -name 'ep*.so' -print -quit)";     cleanup_new_apt_build_deps /tmp/uccl-apt-before.txt "${build_deps[@]}";     rm -rf /tmp/uccl /tmp/uccl-build /tmp/uccl-apt-before.txt /root/.cache/pip
+
+RUN set -eux;     python - <<'PY'
+import importlib.metadata as md
+import os
+import site
+import torch
+
+assert torch.version.hip, "ROCm torch is required"
+root = site.getsitepackages()[0]
+assert os.path.isdir(os.path.join(root, "deep_ep"))
+assert any(name.startswith("ep") and name.endswith(".so") for name in os.listdir(os.path.join(root, "uccl")))
+print("torch", md.version("torch"), "hip", torch.version.hip)
+print("vllm", md.version("vllm"))
+print("UCCL-EP files present")
+PY

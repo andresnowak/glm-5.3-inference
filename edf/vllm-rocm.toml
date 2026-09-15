@@ -1,0 +1,31 @@
+# ROCm vLLM base plus UCCL-EP for CSCS MI300A (gfx942).
+image = "${SCRATCH}/img/vllm-rocm-alps7-uccl.sqsh"
+
+mounts = [
+    "/capstor/",
+    "/iopsstor/",
+    "${HOME}:${HOME}",
+]
+
+workdir = "${PWD}"
+writable = true
+
+[env]
+PATH = "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONNOUSERSITE = "1"
+PMIX_MCA_psec = "native"
+
+# MI300 nodes on this cluster use Slingshot/CXI. The image builds UCCL with
+# libfabric/CXI and patches GPU memory registration to FI_HMEM_ROCR.
+FI_PROVIDER = "cxi"
+UCCL_EP_TRANSPORT = "cxi"
+UCCL_EP_CPU_TIMEOUT_SECS = "600"
+
+HF_HOME = "/iopsstor/scratch/cscs/anowak/hf_cache"
+HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
+TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
+TRITON_CACHE_DIR = "/tmp/triton-cache"
+
+[annotations]
+com.hooks.cxi.enabled = "false"
+com.hooks.netstack.source = "artifact"

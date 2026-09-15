@@ -90,8 +90,15 @@ REMOTE
     ;;
   run)
     jid="${2:?usage: $0 run JOBID}"
-    exec srun --jobid="$jid" --overlap --nodes=1 --ntasks=1 --cpus-per-task=288 \
-      -u bash "${HERE}/build.sh"
+    # Run a snapshot, not build.sh itself: bash reads a script incrementally, so editing
+    # build.sh mid-build makes the running shell resume at a stale byte offset and fail
+    # on garbage. The copy sits beside the original so build.sh's own $HERE still finds
+    # the Containerfile and patches/.
+    snap="${HERE}/.build-run-$$.sh"
+    cp "${HERE}/build.sh" "${snap}"
+    trap 'rm -f "${snap}"' EXIT
+    srun --jobid="$jid" --overlap --nodes=1 --ntasks=1 --cpus-per-task=288 \
+      -u bash "${snap}"
     ;;
   stop)
     jid="${2:?usage: $0 stop JOBID}"
