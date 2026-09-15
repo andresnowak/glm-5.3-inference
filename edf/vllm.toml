@@ -1,0 +1,79 @@
+# Container engine EDF for the vLLM + UCCL-EP image.
+# https://docs.cscs.ch/software/container-engine/run/
+#
+# Built by container/build.sh with UCCL_REPO=uccl-project/uccl (upstream head), i.e.
+# the newest UCCL rather than the swiss-ai fork pin.
+# Built by container/build.sh:
+#   local build   ${SCRATCH}/img/vllm029_alps7_uccl_upstream.sqsh   (the path build.sh writes)
+#
+# Base is the published Alps vLLM image (vLLM 0.29.0, torch 2.13.0a0, CUDA 13.3),
+# plus UCCL-EP installed as `uccl.ep` + a drop-in `deep_ep`. Select the DeepEP path
+# at run time with VLLM_ALL2ALL_BACKEND=deepep_high_throughput|deepep_low_latency;
+# unset, vLLM uses allgather_reducescatter and UCCL is simply not exercised.
+image = "${SCRATCH}/img/vllm029_alps7_uccl_upstream.sqsh"
+
+mounts = [
+    "/capstor/",
+    "/iopsstor/",
+    "${HOME}:${HOME}",
+]
+
+workdir = "${PWD}"
+
+writable = true
+
+[env]
+# Required, not a preference. The container engine merges the **submitting shell's
+# PATH** in *ahead* of the image's, and no srun --export setting prevents it -- not
+# even --export=NONE. A $HOME/.local/bin/python (which `uv python install --default`
+# creates) then shadows /usr/bin/python and the job dies on "No module named 'vllm'".
+# Pinning the image's own PATH here is scoped to this image; the same list hardcoded
+# in a shared launcher template would break images whose python lives elsewhere.
+# **Re-derive by running `echo $PATH` in the image and dropping the submitting
+# shell's own entries.**
+PATH = "/usr/local/lib/python3.12/dist-packages/torch_tensorrt/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/mpi/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/ucx/bin:/opt/amazon/efa/bin:/opt/tensorrt/bin:/opt/mellanox/doca/tools"
+
+# The same class of problem one level down: the home bind-mount puts
+# ~/.local/lib/python3.12/site-packages on sys.path ahead of the image's own.
+# Observed on this account: a nanobind 2.12.0 there shadowing the image's 3.0.1.
+# The image sets this too; repeated here so it survives an --container-env override.
+PYTHONNOUSERSITE = "1"
+
+PMIX_MCA_psec = "native"
+
+# UCCL's RDMA transport. ep/src/proxy.cpp takes the CXI path only for the exact
+# string "cxi"; anything else falls through to ibverbs, which on Slingshot finds no
+# verbs device and aborts every rank. Set in the image; pinned here as documentation
+# and so it is visible in the EDF that governs the run.
+UCCL_EP_TRANSPORT = "cxi"
+
+# UCCL's CPU-side recv timeout, in seconds. Upstream default is the compile-time
+# NUM_CPU_TIMEOUT_SECS = 100 s (ep/include/common.hpp); exceeding it raises
+#     RuntimeError: DeepEP error: timeout (dispatch CPU)      [ep/src/uccl_ep.cc:1041]
+# which is exactly how the high-throughput backend died here, during CUDA graph capture.
+# The upstream comment on this knob says the default can be exceeded and "falsely trigger"
+# that error, which is what a long graph-capture stall looks like. 600 s gives slow
+# collective startup room to complete instead of aborting the engine.
+# (This override does not exist in the swiss-ai fork pin -- another reason to stay on
+# upstream uccl-project/uccl.)
+UCCL_EP_CPU_TIMEOUT_SECS = "600"
+
+# Weights live in the scratch HF cache (GLM-5.3 snapshot is ~704 GiB there).
+HF_HOME = "/iopsstor/scratch/cscs/anowak/hf_cache"
+HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
+
+# JIT caches. /tmp inside an Alps container is RAM-backed and per-container, which is
+# exactly right for these: ephemeral, per-rank, no cross-node sharing wanted.
+TRITON_CACHE_DIR = "/tmp/triton-cache"
+TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
+CUDA_CACHE_DISABLE = "1"
+
+NCCL_PXN_DISABLE = "1"
+NCCL_CROSS_NIC = "0"
+
+[annotations]
+# UCCL talks to libfabric/CXI itself, so the engine's own CXI hook stays off and the
+# network stack comes from the artifact -- same pairing as the nemo-rl image, which
+# runs the same UCCL-EP stack.
+com.hooks.cxi.enabled = "false"
+com.hooks.netstack.source = "artifact"

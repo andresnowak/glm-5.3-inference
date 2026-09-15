@@ -1,0 +1,11 @@
+label	in_len	out_len	conc	req_s	out_tok_s	total_tok_s	ttft_ms	p99_ttft_ms	tpot_ms
+deepep_high_throughput	1024	8	1	0.40	3.20	417.55	811.88	866.02	241.17
+deepep_high_throughput	4096	8	1	0.33	2.63	1355.26	1377.44	1504.88	237.06
+deepep_high_throughput	16384	8	1	0.17	1.38	2828.09	4135.78	4212.86	237.76
+deepep_high_throughput	32768	8	1	0.10	0.83	3383.89	8044.62	8188.29	234.93
+deepep_high_throughput	65536	8	1	0.07	0.59	4801.61	12006.22	12072.18	235.20
+deepep_low_latency	1024	8	1	0.66	5.28	689.44	1211.18	1296.15	43.26
+deepep_low_latency	4096	8	1	0.27	2.17	1118.59	3380.74	3474.01	42.66
+deepep_low_latency	16384	8	1	0.09	0.72	1479.77	10806.29	11089.28	39.84
+deepep_low_latency	32768	8	1	0.05	0.41	1682.27	19228.44	19588.20	37.36
+deepep_low_latency	65536	8	1	0.03	0.23	1905.56	34157.40	34719.57	34.97

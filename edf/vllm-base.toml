@@ -1,0 +1,54 @@
+# Container engine EDF for the published Alps vLLM image, unmodified.
+# https://docs.cscs.ch/software/container-engine/run/
+#
+# This is the stock image: vLLM 0.29.0, torch 2.13.0a0 (CUDA 13.3), Python 3.12.3.
+# It has NO deep_ep/uccl, so expert-parallel runs here fall back to
+# VLLM_ALL2ALL_BACKEND=allgather_reducescatter. Use vllm.toml for the
+# DeepEP/UCCL path.
+#
+#   srun --environment=/users/anowak/developer/glm-5.3/edf/vllm-base.toml ...
+image = "jfrog.svc.cscs.ch#docker-group-csstaff/alps-images/vllm-cuda:alps7-dev-7c969e727797a20cc3e46ff7b4fa20c3"
+
+mounts = [
+    "/capstor/",
+    "/iopsstor/",
+    "${HOME}:${HOME}",
+]
+
+workdir = "${PWD}"
+
+writable = true
+
+[env]
+# The container engine merges the submitting shell's PATH in *ahead* of the image's
+# own, and no --export setting prevents it. Probed on 2026-09-15: this image's PATH
+# arrived with ~/.cargo/bin and ~/.local/bin prepended. Here that is currently
+# harmless (`which python` still resolves to /usr/bin/python), but a
+# `uv python install --default` would put a python in ~/.local/bin and shadow the
+# image interpreter, so pin the image's own PATH. Re-derive with
+# `echo $PATH` in the image and strip the submitting shell's entries.
+PATH = "/usr/local/lib/python3.12/dist-packages/torch_tensorrt/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/mpi/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/ucx/bin:/opt/amazon/efa/bin:/opt/tensorrt/bin:/opt/mellanox/doca/tools"
+PMIX_MCA_psec = "native"
+
+# The home bind-mount puts ~/.local/lib/python3.12/site-packages on sys.path *ahead*
+# of the image's own (site.ENABLE_USER_SITE is True inside the container). Observed on
+# this account: a nanobind 2.12.0 there, shadowing the image. Keep it out.
+PYTHONNOUSERSITE = "1"
+
+# Weights live in the scratch HF cache; keep every HF path under it so no rank
+# writes into $HOME.
+HF_HOME = "/iopsstor/scratch/cscs/anowak/hf_cache"
+HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
+
+# JIT caches: /tmp inside an Alps container is RAM-backed and per-container, which
+# is what these want (ephemeral, per-rank, no cross-node sharing).
+TRITON_CACHE_DIR = "/tmp/triton-cache"
+TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
+CUDA_CACHE_DISABLE = "1"
+
+NCCL_PXN_DISABLE = "1"
+NCCL_CROSS_NIC = "0"
+
+[annotations]
+com.hooks.cxi.enabled = "false"
+com.hooks.netstack.source = "artifact"
