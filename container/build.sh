@@ -14,7 +14,7 @@ set -euo pipefail
 trap 'rm -f "${TMP_OUT:-}" 2>/dev/null || true' EXIT
 
 TAG="${TAG:-vllm-uccl:alps7-dev}"
-OUT="${OUT:-${SCRATCH}/img/vllm029_alps7_uccl.sqsh}"
+OUT="${OUT:-${SCRATCH}/img/vllm029_alps7_uccl_upstream.sqsh}"   # what edf/vllm.toml serves
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Optional pin overrides, e.g. to build against upstream uccl-project/uccl instead of
@@ -24,20 +24,10 @@ BUILD_ARGS=()
 [[ -n "${UCCL_REPO:-}" ]] && BUILD_ARGS+=(--build-arg "UCCL_REPO=${UCCL_REPO}")
 [[ -n "${UCCL_REF:-}" ]]  && BUILD_ARGS+=(--build-arg "UCCL_REF=${UCCL_REF}")
 
-# eth-cscs/local-registry (https://docs.cscs.ch/build-install/containers/) caches both
-# the base image and the layers we build. podman's graphroot is /dev/shm -- RAM, wiped
-# between allocations -- so without this a cold build re-pulls ~20 GB from jfrog and
-# recompiles UCCL from scratch.
-#
-# It has to be a registry rather than a podman additional image store: a store uses the
-# overlay driver, which needs user.* xattrs, and Lustre does not support them. A registry
-# keeps blobs as ordinary files, so its data directory lives happily on scratch.
-#
-# The registry is a container on localhost, so it is (re)started in each allocation --
-# but its data survives, because that is on scratch.
-#
-# Tool in $HOME so a scratch cleanup cannot take it away; data on scratch because $HOME
-# has neither the quota nor the appetite for 26 GB of blobs.
+# eth-cscs/local-registry caches the base image and the layers we build; graphroot is
+# /dev/shm, so nothing survives the allocation otherwise. Not a podman additional image
+# store: that needs user.* xattrs, which Lustre lacks. Tool in $HOME, 26 GB of blobs on
+# scratch.
 CACHE_ARGS=()
 LR_TOOL="${LR_TOOL:-${HOME}/.local/share/local-registry}"
 LR_DATA="${LR_DATA:-${SCRATCH}/tmp/local-registry/registry}"
@@ -47,9 +37,9 @@ lr_wait() { for _ in $(seq 1 15); do lr_reachable "$1" && return 0; sleep 1; don
 if [[ -x "${LR_TOOL}/registry" ]]; then
   mkdir -p "${LR_DATA}"
   lr_addr="$("${LR_TOOL}/registry" status 2>/dev/null || true)"
-  # The registry container outlives the srun step that started it, but its rootless port
-  # forwarder does not -- so `status` happily reports an address nothing answers on.
-  # Probe, and if it is dead, recycle it here, in the step that is about to build.
+  # The container outlives the srun step that started it; its rootless port forwarder
+  # does not, so `status` can report an address nothing answers on. Probe, and recycle
+  # it here, in the step that builds.
   if [[ -n "${lr_addr}" ]] && ! lr_reachable "${lr_addr}"; then
     "${LR_TOOL}/registry" down >/dev/null 2>&1 || true
     lr_addr=""
@@ -78,12 +68,8 @@ fi
 
 echo "[$(date +%Y-%m-%dT%H:%M)] building ${TAG} on $(hostname)"
 echo "  uccl: ${UCCL_REPO:-<Containerfile default>} @ ${UCCL_REF:-<Containerfile default>}"
-# --network=host per the CSCS docs: "Since 30.07.2026, directly invoking podman ... may
-# not work properly on some clusters. If the issue persists, try adding --network=host".
-# https://docs.cscs.ch/build-install/containers/
-# A --cache-to push failure is fatal to podman build, so a registry that dies mid-build
-# kills a build every layer of which was a cache hit. The cache is an optimization; never
-# let it fail the build.
+# --network=host per the CSCS docs: podman may otherwise misbehave on some clusters.
+# A --cache-to failure is fatal to podman build, which would kill a fully cached build.
 if ! podman build --network=host "${CACHE_ARGS[@]}" \
        -f "${HERE}/Containerfile" -t "${TAG}" "${BUILD_ARGS[@]}" "${HERE}"; then
   if [[ ${#CACHE_ARGS[@]} -eq 0 ]]; then exit 1; fi
@@ -93,14 +79,14 @@ if ! podman build --network=host "${CACHE_ARGS[@]}" \
 fi
 
 mkdir -p "$(dirname "${OUT}")"
-# Export to a temp file and rename on success, so an interrupted build cannot destroy a
-# working image (enroot refuses to overwrite, hence the obvious `rm -f` that this avoids).
+# Export to a temp file and rename on success: an interrupted build must not destroy a
+# working image.
 TMP_OUT="${OUT}.new.$$"
 rm -f "${TMP_OUT}"
 echo "[$(date +%Y-%m-%dT%H:%M)] exporting to ${TMP_OUT}"
 
-# enroot import exits non-zero even on success -- it fails cleaning up its own temp dir --
-# so validate the artifact instead of trusting the exit status.
+# enroot import exits non-zero even on success (it fails cleaning up its temp dir), so
+# validate the artifact rather than the exit status.
 set +e
 enroot import -o "${TMP_OUT}" "podman://${TAG}"
 import_rc=$?

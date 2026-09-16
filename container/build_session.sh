@@ -1,9 +1,8 @@
 #!/bin/bash
 # Hold one long-lived bare compute node for repeated image builds.
 #
-# podman's graphroot is /dev/shm: RAM, per-node, wiped between allocations, so a fresh
-# allocation re-pulls the ~20 GB base every time. Inside one allocation the layers stay
-# cached and a rebuild only redoes what changed.
+# podman's graphroot is /dev/shm: RAM, wiped between allocations. Inside one allocation
+# the layers stay cached and a rebuild only redoes what changed.
 #
 #   JOB=$(./build_session.sh start)          # prints the job id
 #   ./build_session.sh warm-cache "$JOB"     # one-time: cache the base image on scratch
@@ -24,7 +23,7 @@ TIME_LIMIT="${SLURM_TIME:-05:00:00}"
 case "${1:-}" in
   start)
     name="glm53-buildsession-$(date +%s)"
-    log="${HERE}/../logs/build-session-${name}.log"
+    log="${LOGROOT:-${SCRATCH}/tmp/glm53/logs}/build-session-${name}.log"
     mkdir -p "$(dirname "$log")"
     res_args=(); [[ -n "$RESERVATION" ]] && res_args=(--reservation="$RESERVATION")
     nohup srun --job-name="$name" --account="$ACCOUNT" --partition="$PARTITION" \
@@ -41,16 +40,15 @@ case "${1:-}" in
     echo "allocation did not start; see $log" >&2; exit 1
     ;;
   warm-cache)
-    # Push the base image into the local registry, once. Everything after that is a
-    # scratch read instead of a ~20 GB jfrog pull. Must happen in a single step: the
-    # registry's port forwarder dies with the step that started it.
+    # Push the base into the local registry, once; after that it is a scratch read.
+    # One step: the registry's port forwarder dies with the step that started it.
     jid="${2:?usage: $0 warm-cache JOBID [BASE_IMAGE]}"
     base="${3:-$(sed -n 's/^ARG BASE_IMAGE=//p' "${HERE}/Containerfile" | head -1)}"
     tool="${LR_TOOL:-${HOME}/.local/share/local-registry}"
     data="${LR_DATA:-${SCRATCH}/tmp/local-registry/registry}"
     echo "caching ${base}"
     echo "  in ${data}"
-    # Fed over stdin rather than `bash -c "..."`, which would swallow the inner quotes.
+    # Over stdin, not `bash -c "..."`, which would swallow the inner quotes.
     exec srun --jobid="$jid" --overlap --nodes=1 --ntasks=1 --cpus-per-task=288 -u \
       bash -s -- "${tool}" "${data}" "${base}" <<'REMOTE'
 set -euo pipefail
@@ -73,9 +71,8 @@ du -sh "${data}"
 REMOTE
     ;;
   registry)
-    # eth-cscs/local-registry, the build-layer cache, for inspecting or resetting it.
-    # There is deliberately no `up` here: a registry started in its own step loses its
-    # port forwarder when that step exits. build.sh starts it in the step that builds.
+    # No `up` here: a registry started in its own step loses its port forwarder when
+    # that step exits. build.sh starts it in the step that builds.
     jid="${2:?usage: $0 registry JOBID status|down|delete}"
     cmd="${3:-status}"
     tool="${LR_TOOL:-${HOME}/.local/share/local-registry}"
@@ -105,10 +102,8 @@ REMOTE
     scancel "$jid"; echo "cancelled $jid"
     ;;
   stop-build)
-    # Cancel only the build step, leaving the session alive.
-    # NB: step .0 is the `sleep infinity` that HOLDS the allocation -- cancelling that
-    # kills the whole session (and any build running in it). The build steps are the
-    # higher-numbered ones, so pick the newest non-.0, non-extern, non-batch step.
+    # Cancel only the build step. Step .0 is the `sleep infinity` holding the
+    # allocation, so pick the newest non-.0, non-extern, non-batch step.
     jid="${2:?usage: $0 stop-build JOBID}"
     step=$(squeue -s -j "$jid" --noheader -o "%i" 2>/dev/null \
              | grep -vE "extern|batch" | grep -v "\.0$" | sort -t. -k2 -n | tail -1)

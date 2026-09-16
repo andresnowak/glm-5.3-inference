@@ -1,19 +1,13 @@
 # syntax=docker/dockerfile:1
 
 # vLLM (Alps published image) + UCCL-EP, so vLLM's DeepEP all2all backends run over
-# Slingshot/CXI on Clariden GH200.
+# Slingshot/CXI on GH200. UCCL installs as `uccl.ep` plus a `deep_ep` wrapper, so vLLM
+# finds `deep_ep.Buffer` with no PYTHONPATH overlay. Select with VLLM_ALL2ALL_BACKEND.
 #
-# UCCL-EP installs as `uccl.ep` (native ext) plus `deep_ep` (a drop-in wrapper with
-# DeepEP's API), so vLLM's DeepEPHTAll2AllManager / DeepEPLLAll2AllManager find
-# `deep_ep.Buffer` with no PYTHONPATH overlay and no per-job build. Select it at run
-# time with VLLM_ALL2ALL_BACKEND=deepep_high_throughput|deepep_low_latency.
+# deepep_v2 is NOT supported: DeepEPV2All2AllManager wants `deep_ep.ElasticBuffer`,
+# which the wrapper does not provide.
 #
-# Scope note: vLLM 0.29 also has a DeepEPV2All2AllManager, which wants
-# `deep_ep.ElasticBuffer`. The UCCL wrapper does not provide that class, so
-# VLLM_ALL2ALL_BACKEND=deepep_v2 is NOT supported by this image.
-#
-# Build context must be this directory (container/): the deep_ep compatibility patch in
-# patches/ is COPYed from it.
+# Build context must be container/: patches/ is COPYed from it.
 
 ARG BASE_IMAGE=jfrog.svc.cscs.ch/docker-group-csstaff/alps-images/vllm-cuda:alps7-dev-7c969e727797a20cc3e46ff7b4fa20c3
 FROM ${BASE_IMAGE}
@@ -22,8 +16,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 LABEL org.opencontainers.image.description="Alps vLLM image + UCCL-EP (deep_ep drop-in) for GH200"
 
-# Same CSCS JFrog mirror the base image's own builds resolve through. Set as ENV so
-# anything installed at run time resolves through it too.
+# The CSCS JFrog mirror. ENV, so run-time installs resolve through it too.
 ENV PIP_INDEX_URL=https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple
 
 COPY patches/add_enable_shrink.py /opt/alps/add_enable_shrink.py
@@ -31,8 +24,7 @@ COPY patches/fix_ll_bf16_availability.py /opt/alps/fix_ll_bf16_availability.py
 COPY patches/fix_deepep_ht_cudagraph_guard.py /opt/alps/fix_deepep_ht_cudagraph_guard.py
 
 # ---- system deps -------------------------------------------------------------
-# Probed against this base tag: nvcc, cmake, ninja, g++, git, curl, Python.h, libibverbs
-# and the full libfabric dev set are all present. pkg-config is the only missing piece.
+# pkg-config is the only build dep this base lacks.
 RUN set -eux; \
     apt-get update -o APT::Sandbox::User=root; \
     apt-get install -y --no-install-recommends -o APT::Sandbox::User=root \
@@ -42,10 +34,9 @@ RUN set -eux; \
     pkg-config --modversion libfabric
 
 # ---- dependency pins ---------------------------------------------------------
-# --break-system-packages is required, not cosmetic: the base ships EXTERNALLY-MANAGED.
-# Constraints file built from the base image's own stack, so nothing installed below
-# can quietly pull a PyPI torch wheel over the NGC build (torch here is an
-# 2.13.0a0+...nv26.7 snapshot that exists on no index).
+# --break-system-packages: the base ships EXTERNALLY-MANAGED. The constraints file stops
+# anything below pulling a PyPI torch over the NGC build, a 2.13.0a0+...nv26.7 snapshot
+# that exists on no index.
 RUN set -eux; \
     mkdir -p /opt/alps; \
     : > /opt/alps/base-pins.txt; \
@@ -56,40 +47,25 @@ RUN set -eux; \
     cat /opt/alps/base-pins.txt
 
 # ---- UCCL-EP -----------------------------------------------------------------
-# Pin matches the validated nemo-rl image. Override UCCL_REF to try a newer commit
-# (the local checkout at ~/open_source/uccl is on 3d9f92ef, "ep: share CXI transport
-# resources across peers", which is ahead of this).
-ARG UCCL_REPO=https://github.com/swiss-ai/uccl.git
-ARG UCCL_REF=fa4c325c6113b798ae0a009ef8239e07352264fb
-# nanobind is absent from this image; ep/setup.py hard-fails without it. (One appears at
-# run time via the home mount's ~/.local -- user-site leakage, which the EDFs disable.)
+ARG UCCL_REPO=https://github.com/uccl-project/uccl.git
+ARG UCCL_REF=e22a3e8fcd636f7efbbd90900458087a41ff73ce
+# ep/setup.py hard-fails without nanobind, which this image lacks.
 ARG NANOBIND_VERSION=3.0.1
 ARG UCCL_NVL_PEERS=4     # NVLink peers per node (GH200: 4 GPUs/node)
 ARG UCCL_CUDA_ARCH=9.0   # GH200 = Hopper (sm_90), confirmed sm_90 via nvidia-smi
-# ep has 13 translation units, so nothing above 13 is used; 16 is headroom. Each nvcc job
-# is memory-hungry enough that one-per-core OOM-kills the build. Raising it does not speed
-# the build up: the UCCL compile is ~1-2 min of a ~20 min build dominated by the base pull.
+# ep has 13 translation units, and one nvcc job per core OOM-kills the build.
 ARG UCCL_MAX_JOBS=16
 #
-# NB: UCCL_NVL_PEERS / UCCL_CUDA_ARCH / UCCL_MAX_JOBS are deliberately NOT named
-# NUM_MAX_NVL_PEERS / TORCH_CUDA_ARCH_LIST / MAX_JOBS. An ENV in the base image beats
-# an ARG of the same name, and this base sets TORCH_CUDA_ARCH_LIST=9.0 and MAX_JOBS=32
-# itself -- a same-named ARG would be silently ignored.
+# The ARGs above are deliberately NOT named NUM_MAX_NVL_PEERS / TORCH_CUDA_ARCH_LIST /
+# MAX_JOBS: a base-image ENV beats a same-named ARG, and this base sets the last two.
 #
-# Sources are fetched by commit sha into an empty repo rather than cloned: a full
-# clone pulls history for a tree discarded in the same layer, and a shallow clone of a
-# branch cannot reach a pinned older commit.
+# Fetched by sha into an empty repo: a shallow clone of a branch cannot reach a pinned
+# commit, and a full clone pulls history discarded in the same layer.
 #
-# ep/setup.py picks -DUSE_GRACE_HOPPER from `nvidia-smi --query-gpu=name` (and the arch
-# from --query-gpu=compute_cap) via subprocess with an argv list, and offers no env
-# override. podman build has no GPU even on a GH200 node, so without a stand-in the
-# image would silently get a non-GH200 build. The stub answers those two queries and is
-# removed inside the same layer, so it can never shadow the real nvidia-smi at run time.
-#
-# The stub is PYTHON, not shell, and that is load-bearing: this base sets ENV=/etc/shinit_v2,
-# so a `#!/bin/sh` stub sources NGC's shinit_v2, which itself runs `nvidia-smi -q -d COMPUTE`
-# and recurses forever. Every level blocks in pipe_read, so it burns no CPU and looks exactly
-# like a slow compile. Python sources no shell init.
+# ep/setup.py takes -DUSE_GRACE_HOPPER and the arch from `nvidia-smi`, with no env
+# override, and podman build has no GPU -- hence the stub, removed in the same layer.
+# It must be PYTHON: this base sets ENV=/etc/shinit_v2, which itself runs nvidia-smi, so
+# a shell stub recurses forever, blocked in pipe_read and looking like a slow compile.
 RUN set -eux; \
     hard="$(ulimit -Hn)"; \
     if [[ "${hard}" == unlimited ]]; then hard=65536; fi; \
@@ -128,22 +104,18 @@ RUN set -eux; \
     rm -rf /tmp/gpustub /tmp/uccl-build /tmp/uccl; \
     ls -l "${SITE}/uccl" "${SITE}/deep_ep"
 
-# Selects UCCL's RDMA transport. ep/src/proxy.cpp sets use_cxi_transport_ only for the
-# exact string "cxi"; anything else takes the ibverbs path, which on Slingshot finds no
-# verbs device and aborts every rank with
+# proxy.cpp sets use_cxi_transport_ only for the exact string "cxi". Anything else takes
+# the ibverbs path, which on Slingshot aborts every rank with
 # "[FATAL] Selected RDMA NIC '' not found in verbs device list".
 ENV UCCL_EP_TRANSPORT=cxi
 
-# Keep the user's ~/.local out of sys.path. The home bind-mount otherwise puts
-# /users/<you>/.local/lib/python3.12/site-packages ahead of the image's own
-# site-packages (observed: a nanobind 2.12.0 there shadowing the image).
+# The home bind-mount otherwise puts ~/.local/lib/python3.12/site-packages ahead of the
+# image's own (observed: a nanobind 2.12.0 there shadowing it).
 ENV PYTHONNOUSERSITE=1
 
 # ---- Run:ai model streamer (fast weight loading) -----------------------------
-# Enables `--load-format runai_streamer`, 2.4-4.4x faster than the default loader here
-# (results/RESULTS.md). Installed from the project's own GitHub release, which carries
-# prebuilt manylinux2014 wheels, so nothing is compiled. Base wheel only -- the _s3/_gcs/
-# _azure extras are for object storage and GLM-5.3 is read from Lustre.
+# Enables `--load-format runai_streamer`. Base wheel only: the _s3/_gcs/_azure extras
+# are for object storage, and the weights are on Lustre.
 ARG MODEL_STREAMER_REPO=https://github.com/dsx-ai-factory/model-streamer
 ARG MODEL_STREAMER_VERSION=0.16.1
 RUN set -eux; \
@@ -154,10 +126,7 @@ RUN set -eux; \
     python3 -c "import runai_model_streamer as m; print('runai_model_streamer at', m.__file__)"
 
 # ---- KV-cache transfer (prefill/decode disaggregation) ----------------------
-# For prefill/decode disaggregation: the base image ships vLLM's connectors but none of
-# their runtime deps. HT prefills a 64k prompt 2.8x faster than LL while decoding 6.7x
-# slower (results/RESULTS.md), so the useful deployment splits the two and needs this.
-# Same pin as the nemo-rl image.
+# The base ships vLLM's KV connectors but not their runtime deps.
 ARG NIXL_VERSION=1.3.0
 RUN set -eux; \
     python3 -m pip install --no-cache-dir --break-system-packages \
@@ -165,9 +134,8 @@ RUN set -eux; \
     python3 -c "import nixl; print('nixl OK')"
 
 # ---- verification ------------------------------------------------------------
-# Fails the build if any layer above moved the base stack. Imports are NOT asserted
-# here: podman build has no GPU, and uccl.ep links against the CUDA driver.
-# tests/import_smoke.sh does that on a compute node instead.
+# Fails the build if any layer above moved the base stack. uccl.ep is not imported here
+# -- it links against the CUDA driver; tests/import_smoke.sh does that on a node.
 RUN set -eux; \
     python3 - <<'VERIFY'
 import importlib.metadata as md
