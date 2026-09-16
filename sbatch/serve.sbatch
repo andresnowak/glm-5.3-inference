@@ -23,16 +23,15 @@
 #
 #SBATCH --job-name=glm53-serve
 #SBATCH --account=infra01
-#SBATCH --partition=normal
-#SBATCH --reservation=SD-69241-apertus-1-5-0
+#SBATCH --partition=preemptable
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=288
 #SBATCH --gres=gpu:4
 #SBATCH --time=02:00:00
 #SBATCH --exclusive
-#SBATCH --output=/users/anowak/developer/glm-5.3/logs/serve-%j.out
-#SBATCH --error=/users/anowak/developer/glm-5.3/logs/serve-%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/anowak/tmp/glm53/logs/serve-%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/anowak/tmp/glm53/logs/serve-%j.err
 
 set -uo pipefail
 
@@ -43,7 +42,7 @@ HERE=/users/anowak/developer/glm-5.3
 EDF="${EDF:-${HERE}/edf/vllm.toml}"
 [[ "${EDF}" = /* ]] || EDF="${HERE}/${EDF}"
 SNAP=/iopsstor/scratch/cscs/anowak/hf_cache/hub/models--zai-org--GLM-5.3/snapshots/aca966e4e02791568aa6a4ced368624b3d897f42
-LOGDIR="${HERE}/logs/run-${SLURM_JOB_ID}"
+LOGDIR="${LOGROOT:-${SCRATCH}/tmp/glm53/logs}/run-${SLURM_JOB_ID}"
 mkdir -p "${LOGDIR}"
 
 mapfile -t nodes < <(scontrol show hostnames "$SLURM_JOB_NODELIST" | sort)
@@ -80,11 +79,12 @@ fi
 echo "head=${HEAD_NODE} (${HEAD_IP})  nodes=${nodes[*]}"
 echo "all2all=${ALL2ALL}  edf=${EDF}  logs=${LOGDIR}"
 
-MOUNTS="/iopsstor:/iopsstor,/capstor:/capstor,/users/anowak:/users/anowak"
+MOUNTS="/iopsstor:/iopsstor,/ritom:/ritom,/users/anowak:/users/anowak"
 ENVVARS="MODEL,HEAD_IP,API_PORT,LOGDIR,ALL2ALL,MAX_MODEL_LEN,MAX_NUM_SEQS,TP_SIZE,CUDA_LAUNCH_BLOCKING,ENFORCE_EAGER,LOAD_FORMAT,BENCH_SUITE,RUNTIME_PATCHES,HT_NUM_QPS_24,DEEPEP_BUFFER_MB,MOE_BACKEND,BENCH_PREFILL,PREFILL_LENS,PREFILL_CONCS"
 
 # The server steps: one task per node, all four in one step.
-srun --overlap --nodes=4 --ntasks=4 --ntasks-per-node=1 --cpus-per-task=288 \
+srun --overlap --nodes="${SLURM_JOB_NUM_NODES}" --ntasks="${SLURM_JOB_NUM_NODES}" \
+  --ntasks-per-node=1 --cpus-per-task=288 \
   --export="ALL,${ENVVARS}" --container-env="${ENVVARS}" \
   --network=disable_rdzv_get --mpi=pmix -l \
   --environment="${EDF}" \

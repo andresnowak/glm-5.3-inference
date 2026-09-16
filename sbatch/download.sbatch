@@ -17,8 +17,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --time=06:00:00
-#SBATCH --output=/users/anowak/developer/glm-5.3/logs/download-%j.out
-#SBATCH --error=/users/anowak/developer/glm-5.3/logs/download-%j.err
+#SBATCH --output=/iopsstor/scratch/cscs/anowak/tmp/glm53/logs/download-%j.out
+#SBATCH --error=/iopsstor/scratch/cscs/anowak/tmp/glm53/logs/download-%j.err
 
 set -euo pipefail
 exec /users/anowak/developer/glm-5.3/scripts/download.sh

@@ -13,8 +13,8 @@
 image = "${SCRATCH}/img/vllm029_alps7_uccl_upstream.sqsh"
 
 mounts = [
-    "/capstor/",
     "/iopsstor/",
+    "/ritom/",
     "${HOME}:${HOME}",
 ]
 
@@ -62,8 +62,15 @@ UCCL_EP_CPU_TIMEOUT_SECS = "600"
 HF_HOME = "/iopsstor/scratch/cscs/anowak/hf_cache"
 HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
 
-# JIT caches. /tmp inside an Alps container is RAM-backed and per-container, which is
-# exactly right for these: ephemeral, per-rank, no cross-node sharing wanted.
+# Caches. Anything worth keeping between jobs goes to Ritom (NFS, nconnect=64: good at
+# many small files, unlike Lustre). Per-rank compile scratch stays on the node-local
+# RAM-backed /tmp. Nothing may default to ~/.cache: $HOME is mounted here, and its
+# inode quota is what vLLM was quietly filling.
+XDG_CACHE_HOME = "/ritom/scratch/cscs/anowak/cache"
+VLLM_CACHE_ROOT = "/ritom/scratch/cscs/anowak/cache/vllm"
+FLASHINFER_WORKSPACE_BASE = "/ritom/scratch/cscs/anowak/cache/flashinfer"
+TORCH_HOME = "/ritom/scratch/cscs/anowak/cache/torch"
+TORCH_EXTENSIONS_DIR = "/tmp/torch-extensions"
 TRITON_CACHE_DIR = "/tmp/triton-cache"
 TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
 CUDA_CACHE_DISABLE = "1"
@@ -72,8 +79,9 @@ NCCL_PXN_DISABLE = "1"
 NCCL_CROSS_NIC = "0"
 
 [annotations]
-# UCCL talks to libfabric/CXI itself, so the engine's own CXI hook stays off and the
-# network stack comes from the artifact -- same pairing as the nemo-rl image, which
-# runs the same UCCL-EP stack.
+# UCCL talks to libfabric/CXI itself, so the engine's own CXI hook stays off, and the
+# network stack comes from the host.
+# NB: 10-netstack.sh defaults to "artifact", so deleting this line does not disable the
+# hook -- "host" has to be set explicitly.
 com.hooks.cxi.enabled = "false"
-com.hooks.netstack.source = "artifact"
+com.hooks.netstack.source = "host"

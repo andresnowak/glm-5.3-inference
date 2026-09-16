@@ -10,8 +10,8 @@
 image = "jfrog.svc.cscs.ch#docker-group-csstaff/alps-images/vllm-cuda:alps7-dev-7c969e727797a20cc3e46ff7b4fa20c3"
 
 mounts = [
-    "/capstor/",
     "/iopsstor/",
+    "/ritom/",
     "${HOME}:${HOME}",
 ]
 
@@ -42,6 +42,15 @@ HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
 
 # JIT caches: /tmp inside an Alps container is RAM-backed and per-container, which
 # is what these want (ephemeral, per-rank, no cross-node sharing).
+# Caches: anything worth keeping between jobs goes to Ritom (NFS, nconnect=64 --
+# many small files, unlike Lustre); per-rank compile scratch stays on the
+# node-local RAM-backed /tmp. Nothing may default to ~/.cache: $HOME is mounted
+# here, and its inode quota is what vLLM was quietly filling.
+XDG_CACHE_HOME = "/ritom/scratch/cscs/anowak/cache"
+VLLM_CACHE_ROOT = "/ritom/scratch/cscs/anowak/cache/vllm"
+FLASHINFER_WORKSPACE_BASE = "/ritom/scratch/cscs/anowak/cache/flashinfer"
+TORCH_HOME = "/ritom/scratch/cscs/anowak/cache/torch"
+TORCH_EXTENSIONS_DIR = "/tmp/torch-extensions"
 TRITON_CACHE_DIR = "/tmp/triton-cache"
 TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
 CUDA_CACHE_DISABLE = "1"
@@ -50,5 +59,7 @@ NCCL_PXN_DISABLE = "1"
 NCCL_CROSS_NIC = "0"
 
 [annotations]
+# netstack from the host. The hook defaults to "artifact", so this must be set
+# explicitly -- deleting the line does not disable it.
 com.hooks.cxi.enabled = "false"
-com.hooks.netstack.source = "artifact"
+com.hooks.netstack.source = "host"
