@@ -20,17 +20,10 @@ was built, what was learned, what is Alps/CUDA-specific, and what carries over t
 Last validation: job `3411463`, `COMPLETED` in 6:44, served `POST /v1/chat/completions`
 200 OK with a coherent 337-token answer, `deepep_low_latency`, EP=16.
 
-**One caveat before you trust a fresh build:** `container/Containerfile` still defaults to
-`UCCL_REPO=https://github.com/swiss-ai/uccl.git` at a stale pin. Every validated result
-here used **upstream** `uccl-project/uccl @ e22a3e8f`, passed as an override. A plain
-`build_session.sh run` therefore does **not** reproduce the image being served. Flip the
-default, or keep passing:
-
-```bash
-UCCL_REPO=https://github.com/uccl-project/uccl.git \
-UCCL_REF=e22a3e8fcd636f7efbbd90900458087a41ff73ce \
-  container/build_session.sh run "$JOB"
-```
+A default build now reproduces exactly that image: `container/Containerfile` pins
+**upstream** `uccl-project/uccl @ e22a3e8f` (not the swiss-ai fork, whose pin is months
+stale and fails on both DeepEP backends), and `build.sh` writes the path `edf/vllm.toml`
+serves.
 
 ---
 
@@ -39,8 +32,7 @@ UCCL_REF=e22a3e8fcd636f7efbbd90900458087a41ff73ce \
 | what | path |
 |---|---|
 | repo | `/users/anowak/developer/glm-5.3/` |
-| serving image (validated) | `$SCRATCH/img/vllm029_alps7_uccl_upstream.sqsh` |
-| default build output | `$SCRATCH/img/vllm029_alps7_uccl.sqsh` (fork pin — see above) |
+| serving image (validated), and what a default build writes | `$SCRATCH/img/vllm029_alps7_uccl_upstream.sqsh` |
 | weights (703.74 GiB) | `$SCRATCH/hf_cache/hub/models--zai-org--GLM-5.3` |
 | build cache tool | `~/.local/share/local-registry` (3 bash scripts, 15 KB) |
 | build cache data | `$SCRATCH/tmp/local-registry/registry` (~26 GB) |
@@ -57,7 +49,7 @@ Two backups of `storage.conf` exist: `.bak-20260915T1514` (original) and
 sbatch sbatch/download.sbatch                      # weights, once, resumable
 JOB=$(container/build_session.sh start)            # build session
 container/build_session.sh warm-cache "$JOB"       # once: base image -> registry
-container/build_session.sh run "$JOB"              # build (see §1 caveat)
+container/build_session.sh run "$JOB"              # build
 container/build_session.sh stop "$JOB"
 sbatch sbatch/serve.sbatch                         # serve
 ```
@@ -245,9 +237,8 @@ infinitely.
    from measured TTFT/TPOT, not from a running disaggregated deployment.
 2. **Report two upstream bugs**: the vLLM cudagraph guard, and the FlashInfer MoE
    autotuner collective under EP. Both diagnosed, neither filed.
-3. **Flip the Containerfile UCCL default** to upstream (§1).
-4. **MTP speculative decoding** — untested.
-5. **8 nodes / EP=32** for the native 1M window — projected (~42 GiB KV/GPU), not measured.
+3. **MTP speculative decoding** — untested.
+4. **8 nodes / EP=32** for the native 1M window — projected (~42 GiB KV/GPU), not measured.
 
 ---
 

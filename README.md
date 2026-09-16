@@ -45,6 +45,60 @@ sbatch --export=ALL,BENCH_PREFILL=1,MAX_MODEL_LEN=131072,PREFILL_LENS="1024 1638
 sbatch --export=ALL,ALL2ALL=deepep_high_throughput,MOE_BACKEND=deep_gemm,GPU_MEM_UTIL=0.80 sbatch/serve.sbatch
 ```
 
+## Benchmarks
+
+Both benchmark modes bring the server up, sweep against **that one server**, write a TSV,
+and exit. Bringing GLM-5.3 up costs ~5 min, so a sweep shares one server rather than
+paying that per point. Results land in `$LOGROOT/run-<jobid>/`; promote the ones worth
+keeping into `results/`.
+
+```bash
+# throughput + latency, 11 points
+sbatch --export=ALL,BENCH_SUITE=1,MAX_NUM_SEQS=64 sbatch/serve.sbatch
+
+# long-context TTFT
+sbatch --export=ALL,BENCH_PREFILL=1,MAX_MODEL_LEN=131072 sbatch/serve.sbatch
+```
+
+`BENCH_SUITE=1` runs three scenarios through `vllm bench serve`:
+
+| scenario | shape | sweeps | answers |
+|---|---|---|---|
+| `conc-scaling` | 1024 in / 128 out | conc 1, 4, 16, 32, 64 | where throughput stops scaling |
+| `prefill` | grows input, 32 out | in 1k → 32k, conc 8 | TTFT vs prompt length |
+| `decode` | 256 in, grows output | out 128 → 2048, conc 8 | whether TPOT drifts with length |
+
+`BENCH_PREFILL=1` is the prefill-only sweep: `out_len=8`, so it is essentially pure TTFT
+— the number that decides whether `deepep_high_throughput` is worth running as a
+disaggregated prefill tier. Override the grid:
+
+```bash
+PREFILL_LENS="1024 16384 65536"   # default: 1024 4096 16384 32768 65536 131072
+PREFILL_CONCS="1 4"               # default: 1 4
+```
+
+Both write a header row plus one row per point, so two runs diff directly:
+
+```
+label  scenario      in_len  out_len  prompts  conc  req_s  out_tok_s  total_tok_s  ttft_ms  tpot_ms  p99_tpot_ms
+```
+
+To compare backends, run the same mode twice and change one thing:
+
+```bash
+sbatch --export=ALL,BENCH_SUITE=1 sbatch/serve.sbatch                        # deepep_low_latency
+sbatch --export=ALL,BENCH_SUITE=1,ALL2ALL=allgather_reducescatter sbatch/serve.sbatch
+sbatch --export=ALL,BENCH_PREFILL=1,ALL2ALL=deepep_high_throughput,MOE_BACKEND=deep_gemm,GPU_MEM_UTIL=0.80 sbatch/serve.sbatch
+```
+
+Two things that will otherwise waste a job: `deepep_high_throughput` **needs** both
+`MOE_BACKEND=deep_gemm` and `GPU_MEM_UTIL=0.80` (`serve.sbatch` refuses it without the
+first), and the measurements are only comparable at equal `MAX_NUM_SEQS` and
+`MAX_MODEL_LEN`, since both change how much memory is left for KV cache.
+
+For a single ad-hoc query instead of a sweep, a plain `sbatch/serve.sbatch` already posts
+one chat completion and saves it to `completion.json`.
+
 ## Layout
 
 | path | what |
@@ -111,5 +165,11 @@ torch 2.13.0a0, CUDA 13.3) plus:
 - The container engine merges the submitting shell's `PATH` *ahead* of the image's, so both
   EDFs pin the image's own `PATH`.
 - Builds must run on a compute node with **no** `--environment` — podman needs the node's own
-  runtime, and its graphroot is `/dev/shm` (RAM, wiped between allocations). The scratch
-  additional-image-store in `~/.config/containers/storage.conf` is what makes cold builds fast.
+  runtime, and its graphroot is `/dev/shm` (RAM, wiped between allocations). The base image
+  and the layers we build are cached in a local registry instead; see `container/build.sh`.
+- **Nothing writes to `$HOME`.** Logs go to `$LOGROOT` (default `$SCRATCH/tmp/glm53/logs`),
+  caches to Ritom via the EDF. The home inode quota is small, and vLLM quietly filling
+  `~/.cache` breaks every job with `Disk quota exceeded` — including, confusingly, jobs that
+  never start, because the Slurm output redirect is what fails first.
+- `normal` is often `DOWN` on this cluster; `preemptable` works with the `normal` QoS.
+  Run `sinfo -a` before assuming a partition exists.
