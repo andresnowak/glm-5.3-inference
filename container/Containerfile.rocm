@@ -2,37 +2,197 @@
 
 # Published Alps ROCm vLLM image plus UCCL-EP's DeepEP-compatible backend.
 ARG BASE_IMAGE=jfrog.svc.cscs.ch/docker-group-csstaff/alps-images/vllm-rocm:alps7-dev
+
+# Match the AITER revision selected by this base image's vLLM source commit.
+# Build the wheel separately so compilers and build-only Python packages do not
+# enter the runtime image or modify its validated torch/ROCm stack.
+FROM ${BASE_IMAGE} AS aiter-builder
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV PIP_INDEX_URL=https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple     PYTHONNOUSERSITE=1
+ARG AITER_REPO=https://github.com/ROCm/aiter.git
+ARG AITER_REF=v0.1.19
+ARG AITER_GPU_ARCH=gfx942
+ARG AITER_MAX_JOBS=64
+RUN set -eux; \
+    source /opt/alps/package-helpers.sh; \
+    apt_get update; \
+    apt_get install -y --no-install-recommends build-essential git python3-dev; \
+    rm -rf /var/lib/apt/lists/* /tmp/aiter; \
+    source /opt/alps/env/alps-rocm-build.env; \
+    export ROCM_HOME="${ROCM_BUILD_PREFIX}" ROCM_PATH="${ROCM_BUILD_PREFIX}"; \
+    export HIP_HOME="${ROCM_BUILD_PREFIX}" HIP_PATH="${ROCM_BUILD_PREFIX}"; \
+    export PATH="${ROCM_BUILD_PREFIX}/bin:${ROCM_BUILD_PREFIX}/llvm/bin:${PATH}"; \
+    git clone --recursive --branch "${AITER_REF}" "${AITER_REPO}" /tmp/aiter; \
+    pip_install python --no-cache-dir -r /tmp/aiter/requirements.txt; \
+    cd /tmp/aiter; \
+    PREBUILD_KERNELS=1 \
+    AITER_USE_SYSTEM_TRITON=1 \
+    GPU_ARCHS="${AITER_GPU_ARCH}" \
+    MAX_JOBS="${AITER_MAX_JOBS}" \
+      python setup.py bdist_wheel --dist-dir=/tmp/aiter-wheel; \
+    test -n "$(find /tmp/aiter-wheel -maxdepth 1 -name 'amd_aiter-*.whl' -print -quit)"
+
 FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-LABEL org.opencontainers.image.description="Alps ROCm vLLM + UCCL-EP for MI300A/gfx942"
+LABEL org.opencontainers.image.description="Alps ROCm vLLM + UCCL-EP and AITER for MI300A/gfx942"
+ARG AITER_REF=v0.1.19
+LABEL org.opencontainers.image.aiter.revision="${AITER_REF}"
 
 ENV PIP_INDEX_URL=https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple     PYTHONNOUSERSITE=1
 
-COPY patches/add_enable_shrink.py /opt/alps/add_enable_shrink.py
-COPY patches/fix_deepep_ht_cudagraph_guard.py /opt/alps/fix_deepep_ht_cudagraph_guard.py
-
+# Mirror the existing CUDA derivative: compile UCCL-EP from a pinned source revision
+# against the torch/ROCm stack already in the published vLLM development image, then
+# install UCCL's own DeepEP-compatible wrapper from the same checkout.
 ARG UCCL_REPO=https://github.com/uccl-project/uccl.git
-ARG UCCL_REF=e22a3e8fcd636f7efbbd90900458087a41ff73ce
+# Last upstream revision before c1c3c3f introduced CUDA launch APIs that fail the ROCm build.
+ARG UCCL_REF=d94b5bf2e45bd21c40ccd10163453e91fd9d30c8
 ARG NANOBIND_VERSION=3.0.1
-ARG UCCL_GPU_ARCH=gfx942
 ARG UCCL_LOCAL_PEERS=4
+ARG UCCL_GPU_ARCH=gfx942
 ARG UCCL_MAX_JOBS=16
 
-RUN set -eux;     source /opt/alps/package-helpers.sh;     build_deps=(build-essential git ninja-build pkg-config python3-dev       libibverbs-dev libnl-3-dev libnl-route-3-dev libnuma-dev);     snapshot_apt_packages /tmp/uccl-apt-before.txt;     apt_get update;     apt_get install -y --no-install-recommends "${build_deps[@]}";     rm -rf /var/lib/apt/lists/*;     source /opt/alps/env/alps-rocm-build.env;     export ROCM_HOME="${ROCM_BUILD_PREFIX}" ROCM_PATH="${ROCM_BUILD_PREFIX}";     export HIP_HOME="${ROCM_BUILD_PREFIX}" HIP_PATH="${ROCM_BUILD_PREFIX}";     export PATH="${ROCM_BUILD_PREFIX}/bin:${ROCM_BUILD_PREFIX}/llvm/bin:${PATH}";     pip_install python --no-cache-dir "nanobind==${NANOBIND_VERSION}";     site_dir="$(python -c 'import site; print(site.getsitepackages()[0])')";     rm -rf /tmp/uccl /tmp/uccl-build;     git init -q /tmp/uccl;     git -C /tmp/uccl remote add origin "${UCCL_REPO}";     git -C /tmp/uccl fetch -q --depth 1 origin "${UCCL_REF}";     git -C /tmp/uccl checkout -q FETCH_HEAD; mkdir -p "${site_dir}/uccl";     touch "${site_dir}/uccl/__init__.py";     pushd /tmp/uccl/ep; NUM_MAX_NVL_PEERS="${UCCL_LOCAL_PEERS}"     PYTORCH_ROCM_ARCH="${UCCL_GPU_ARCH}"     MAX_JOBS="${UCCL_MAX_JOBS}"     INSTALL_DIR="${site_dir}/uccl"     python setup.py build --build-base /tmp/uccl-build install;     popd;     rm -rf "${site_dir}/deep_ep";     cp -aL /tmp/uccl/ep/deep_ep_wrapper/deep_ep "${site_dir}/deep_ep";     python /opt/alps/add_enable_shrink.py "${site_dir}/deep_ep/buffer.py";     vllm_dir="$(python -c 'import importlib.util; print(importlib.util.find_spec("vllm").submodule_search_locations[0])')";     python /opt/alps/fix_deepep_ht_cudagraph_guard.py "${vllm_dir}/config/compilation.py";     test -n "$(find "${site_dir}/uccl" -maxdepth 1 -name 'ep*.so' -print -quit)";     cleanup_new_apt_build_deps /tmp/uccl-apt-before.txt "${build_deps[@]}";     rm -rf /tmp/uccl /tmp/uccl-build /tmp/uccl-apt-before.txt /root/.cache/pip
+LABEL org.opencontainers.image.uccl.revision="${UCCL_REF}"
 
-RUN set -eux;     python - <<'PY'
+# Buffer API compatibility and HT graph guards remain explicit runtime patches
+# in scripts/serve_worker.sh; only low-latency serving is validated on ROCm.
+# The ROCm kernel has 16 wavefronts per 1024-thread block. Validate the actual
+# routing top-k plus its control wavefront, not the compile-time top-k capacity.
+COPY patches/uccl-rocm-ll-runtime-topk.patch /tmp/uccl-rocm-ll-runtime-topk.patch
+
+RUN set -eux; \
+    source /opt/alps/package-helpers.sh; \
+    build_deps=( \
+      build-essential \
+      git \
+      libfabric-dev \
+      libibverbs-dev \
+      libnl-3-dev \
+      libnl-route-3-dev \
+      libnuma-dev \
+      ninja-build \
+      pkg-config \
+      python3-dev \
+    ); \
+    runtime_deps=(libfabric1 libibverbs1 libnuma1); \
+    snapshot_apt_packages /tmp/uccl-apt-before.txt; \
+    apt_get update; \
+    apt_get install -y --no-install-recommends "${build_deps[@]}" "${runtime_deps[@]}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    source /opt/alps/env/alps-rocm-build.env; \
+    export ROCM_HOME="${ROCM_BUILD_PREFIX}" ROCM_PATH="${ROCM_BUILD_PREFIX}"; \
+    export HIP_HOME="${ROCM_BUILD_PREFIX}" HIP_PATH="${ROCM_BUILD_PREFIX}"; \
+    export PATH="${ROCM_BUILD_PREFIX}/bin:${ROCM_BUILD_PREFIX}/llvm/bin:${PATH}"; \
+    pip_install python --no-cache-dir "nanobind==${NANOBIND_VERSION}" intervaltree; \
+    site_dir="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
+    rm -rf /tmp/uccl /tmp/uccl-build; \
+    git init -q /tmp/uccl; \
+    git -C /tmp/uccl remote add origin "${UCCL_REPO}"; \
+    git -C /tmp/uccl fetch -q --depth 1 origin "${UCCL_REF}"; \
+    git -C /tmp/uccl checkout -q FETCH_HEAD; \
+    git -C /tmp/uccl apply --check /tmp/uccl-rocm-ll-runtime-topk.patch; \
+    git -C /tmp/uccl apply /tmp/uccl-rocm-ll-runtime-topk.patch; \
+    real_cxx="$(command -v c++)"; \
+    printf '#include <rdma/fi_domain.h>\n#define FI_HMEM_CUDA FI_HMEM_ROCR\n' > /tmp/uccl-rocm-hmem.h; \
+    printf '#!/bin/bash\nexec "%s" -include /tmp/uccl-rocm-hmem.h "$@"\n' "${real_cxx}" > /tmp/uccl-rocm-cxx; \
+    chmod 0755 /tmp/uccl-rocm-cxx; \
+    mkdir -p "${site_dir}/uccl"; \
+    touch "${site_dir}/uccl/__init__.py"; \
+    pushd /tmp/uccl/ep; \
+    USE_LIBFABRIC_CXI=1 \
+    NUM_MAX_NVL_PEERS="${UCCL_LOCAL_PEERS}" \
+    PYTORCH_ROCM_ARCH="${UCCL_GPU_ARCH}" \
+    MAX_JOBS="${UCCL_MAX_JOBS}" \
+    INSTALL_DIR="${site_dir}/uccl" \
+    CXX=/tmp/uccl-rocm-cxx \
+    python setup.py build --build-base /tmp/uccl-build install; \
+    popd; \
+    rm -rf "${site_dir}/deep_ep"; \
+    cp -aL /tmp/uccl/ep/deep_ep_wrapper/deep_ep "${site_dir}/deep_ep"; \
+    test -n "$(find "${site_dir}/uccl" -maxdepth 1 -name 'ep*.so' -print -quit)"; \
+    ldd "${site_dir}"/uccl/ep*.so | grep -F 'libfabric.so.1'; \
+    rm -rf /tmp/uccl /tmp/uccl-build /tmp/uccl-rocm-cxx /tmp/uccl-rocm-hmem.h /root/.cache/pip
+
+# Keep cleanup separate so a packaging-policy failure cannot discard a successful compile.
+RUN set -eux; \
+    source /opt/alps/package-helpers.sh; \
+    APT_CLEANUP_HOLD_PACKAGES=__none__ \
+      cleanup_new_apt_build_deps /tmp/uccl-apt-before.txt \
+        build-essential git libfabric-dev libibverbs-dev libnl-3-dev \
+        libnl-route-3-dev libnuma-dev ninja-build pkg-config python3-dev; \
+    rm -f /tmp/uccl-apt-before.txt
+
+# UCCL must resolve HIP from the same ROCm SDK package that Torch loads. If it
+# resolves _rocm_sdk_devel first, importing UCCL before Torch loads two COMGR/LLVM
+# copies and aborts on duplicate LLVM command-line option registration. The host
+# CXI libfabric dlopens the unversioned HSA runtime, which the core package omits.
+# The host CXI plugin resolves that name when it initializes FI_HMEM_ROCR.
+# Use a plain symlink to the validated core runtime. A shutdown-interposition
+# experiment remains out of the image until it has separate validation.
+RUN set -eux; \
+    hsa_runtime=/opt/venv/lib/python3.12/site-packages/_rocm_sdk_core/lib/libhsa-runtime64.so.1; \
+    test -e "${hsa_runtime}"; \
+    mkdir -p /opt/rocm-hmem/lib; \
+    ln -s "${hsa_runtime}" /opt/rocm-hmem/lib/libhsa-runtime64.so; \
+    test -e /opt/rocm-hmem/lib/libhsa-runtime64.so
+ENV LD_LIBRARY_PATH=/opt/rocm-hmem/lib:/opt/venv/lib/python3.12/site-packages/_rocm_sdk_core/lib:/opt/venv/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH}
+ENV UCCL_EP_TRANSPORT=cxi
+
+# Install AITER and its only missing runtime dependency without resolving or
+# replacing torch, Triton, or any packages supplied by the published base.
+COPY --from=aiter-builder /tmp/aiter-wheel/amd_aiter-*.whl /tmp/aiter-wheel/
+RUN set -eux; \
+    source /opt/alps/package-helpers.sh; \
+    pip_install python --no-cache-dir --no-deps "flydsl==0.2.4" /tmp/aiter-wheel/amd_aiter-*.whl; \
+    rm -rf /tmp/aiter-wheel; \
+    python -c 'import importlib.metadata as m, importlib.util as u; s = u.find_spec("aiter"); assert s; print("amd-aiter", m.version("amd-aiter"), s.origin)'
+
+# Match the CUDA derivative's fast local-checkpoint loader. Install without dependency
+# resolution so the published ROCm torch/vLLM stack cannot move.
+ARG MODEL_STREAMER_REPO=https://github.com/dsx-ai-factory/model-streamer
+ARG MODEL_STREAMER_VERSION=0.16.1
+RUN set -eux; \
+    source /opt/alps/package-helpers.sh; \
+    arch="$(uname -m)"; \
+    pip_install python --no-cache-dir --no-deps \
+      "${MODEL_STREAMER_REPO}/releases/download/${MODEL_STREAMER_VERSION}/runai_model_streamer-${MODEL_STREAMER_VERSION}-py3-none-manylinux2014_${arch}.whl"; \
+    python -c 'import runai_model_streamer as m; print("runai_model_streamer", m.__file__)'
+
+# NIXL is intentionally omitted. PyPI publishes CUDA backends only; a usable ROCm
+# package requires a source-built nixl_rocm wheel and UCX built with ROCm support.
+# Add that stack only when prefill/decode disaggregation is required.
+
+# Ship the same smoke test used after export.
+COPY tests/import_smoke_rocm.sh /opt/tests/vllm-rocm/import_smoke.sh
+RUN chmod a+rx /opt/tests/vllm-rocm/import_smoke.sh
+
+# Final build-time verification. A runtime GPU test follows after SquashFS export.
+RUN set -eux; \
+    python - <<'PY'
 import importlib.metadata as md
 import os
-import site
+import subprocess
+
+import deep_ep
+import importlib.util
+import runai_model_streamer
+from uccl import ep
 import torch
 
 assert torch.version.hip, "ROCm torch is required"
-root = site.getsitepackages()[0]
-assert os.path.isdir(os.path.join(root, "deep_ep"))
-assert any(name.startswith("ep") and name.endswith(".so") for name in os.listdir(os.path.join(root, "uccl")))
+assert importlib.util.find_spec("vllm"), "vLLM package is required"
+assert importlib.util.find_spec("deep_ep"), "UCCL's deep_ep wrapper is required"
+aiter_spec = importlib.util.find_spec("aiter")
+assert aiter_spec, "AITER package is required"
+assert os.environ.get("UCCL_EP_TRANSPORT") == "cxi"
 print("torch", md.version("torch"), "hip", torch.version.hip)
 print("vllm", md.version("vllm"))
-print("UCCL-EP files present")
+print("amd-aiter", md.version("amd-aiter"), aiter_spec.origin)
+print("uccl.ep", ep.__file__)
+print("deep_ep", deep_ep.__file__)
+print("runai_model_streamer", runai_model_streamer.__file__)
+linked = subprocess.check_output(["ldd", ep.__file__], text=True)
+assert "not found" not in linked, linked
 PY
+RUN python -m pip check || echo 'WARN: pip metadata reports dependency inconsistencies'

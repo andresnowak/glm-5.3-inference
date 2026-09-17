@@ -12,6 +12,9 @@ build_args=()
 [[ -n "${BASE_IMAGE:-}" ]] && build_args+=(--build-arg "BASE_IMAGE=${BASE_IMAGE}")
 [[ -n "${UCCL_REPO:-}" ]] && build_args+=(--build-arg "UCCL_REPO=${UCCL_REPO}")
 [[ -n "${UCCL_REF:-}" ]] && build_args+=(--build-arg "UCCL_REF=${UCCL_REF}")
+[[ -n "${AITER_REPO:-}" ]] && build_args+=(--build-arg "AITER_REPO=${AITER_REPO}")
+[[ -n "${AITER_REF:-}" ]] && build_args+=(--build-arg "AITER_REF=${AITER_REF}")
+[[ -n "${AITER_MAX_JOBS:-}" ]] && build_args+=(--build-arg "AITER_MAX_JOBS=${AITER_MAX_JOBS}")
 
 # Persist the large ROCm base and built layers across node allocations. Podman's graphroot
 # is node-local /dev/shm and disappears after each allocation; the registry stores blobs
@@ -49,6 +52,12 @@ podman build --network=host --format=docker "${cache_args[@]}" \
   "${build_args[@]}" "${HERE}"
 
 mkdir -p "$(dirname "${OUT}")"
+# Bare MI300 nodes cannot access the login-node Capstor scratch defaults.
+export ENROOT_CACHE_PATH="${ROCM_ENROOT_CACHE_PATH:-${SCRATCH}/tmp/enroot/cache}"
+export ENROOT_DATA_PATH="${ROCM_ENROOT_DATA_PATH:-${SCRATCH}/tmp/enroot/data}"
+export ENROOT_RUNTIME_PATH="${ROCM_ENROOT_RUNTIME_PATH:-/tmp/enroot-runtime-${UID}}"
+mkdir -p "${ENROOT_CACHE_PATH}" "${ENROOT_DATA_PATH}" "${ENROOT_RUNTIME_PATH}"
+chmod 700 "${ENROOT_RUNTIME_PATH}"
 TMP_OUT="${OUT}.new.$$"
 rm -f "${TMP_OUT}"
 set +e

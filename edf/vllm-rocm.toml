@@ -2,7 +2,6 @@
 image = "${SCRATCH}/img/vllm-rocm-alps7-uccl.sqsh"
 
 mounts = [
-    "/capstor/",
     "/iopsstor/",
     "${HOME}:${HOME}",
 ]
@@ -14,18 +13,22 @@ writable = true
 PATH = "/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 PYTHONNOUSERSITE = "1"
 PMIX_MCA_psec = "native"
+XDG_CACHE_HOME = "${SCRATCH}/tmp/vllm-rocm-uccl-glm53/cache"
+VLLM_CACHE_ROOT = "${SCRATCH}/tmp/vllm-rocm-uccl-glm53/cache/vllm"
+VLLM_WORKER_MULTIPROC_METHOD = "spawn"
+PIP_CACHE_DIR = "${SCRATCH}/tmp/vllm-rocm-uccl-glm53/cache/pip"
 
-# MI300 nodes on this cluster use Slingshot/CXI. The image builds UCCL with
-# libfabric/CXI and patches GPU memory registration to FI_HMEM_ROCR.
+# MI300 nodes on this cluster use Slingshot/CXI. The image builds pinned
+# upstream UCCL with CXI/ROCm HMEM support and the runtime-top-k assertion fix.
 FI_PROVIDER = "cxi"
 UCCL_EP_TRANSPORT = "cxi"
 UCCL_EP_CPU_TIMEOUT_SECS = "600"
 
-HF_HOME = "/iopsstor/scratch/cscs/anowak/hf_cache"
-HF_HUB_CACHE = "/iopsstor/scratch/cscs/anowak/hf_cache/hub"
+HF_HOME = "${SCRATCH}/hf_cache"
+HF_HUB_CACHE = "${SCRATCH}/hf_cache/hub"
 TORCHINDUCTOR_CACHE_DIR = "/tmp/inductor-cache"
 TRITON_CACHE_DIR = "/tmp/triton-cache"
 
 [annotations]
-com.hooks.cxi.enabled = "false"
-com.hooks.netstack.source = "artifact"
+com.hooks.cxi.enabled = "true"
+com.hooks.netstack.source = "host"

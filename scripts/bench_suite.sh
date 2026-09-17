@@ -3,7 +3,7 @@
 #
 # Sweeps against one server: bringing GLM-5.3 up costs ~5 min per job.
 # One TSV row per point.
-set -uo pipefail
+set -euo pipefail
 
 BASE_URL="${BASE_URL:?}"
 SNAP="${SNAP:?}"
@@ -28,6 +28,16 @@ bench_point() {
     --random-input-len "${in_len}" --random-output-len "${out_len}" \
     --num-prompts "${prompts}" --max-concurrency "${conc}" \
     > "${log}" 2>&1
+
+  local successful failed
+  successful="$(metric "${log}" 'Successful requests')"
+  failed="$(metric "${log}" 'Failed requests')"
+  if [[ "${successful}" != "${prompts}" || "${failed}" != "0" ]]; then
+    printf 'benchmark point failed: successful=%s/%s failed=%s; see %s\n' \
+      "${successful:-unknown}" "${prompts}" "${failed:-unknown}" "${log}" >&2
+    return 1
+  fi
+
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "${LABEL}" "${scenario}" "${in_len}" "${out_len}" "${prompts}" "${conc}" \
     "$(metric "${log}" 'Request throughput')" \

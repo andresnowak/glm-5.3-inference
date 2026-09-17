@@ -39,6 +39,14 @@ print("Buffer.__init__", inspect.signature(deep_ep.Buffer.__init__))
 print("ElasticBuffer", hasattr(deep_ep, "ElasticBuffer"), "(expected false)")
 PY
 
+echo "=== vLLM DeepEP discovery ==="
+python - <<'PY' || rc=1
+from vllm.utils.import_utils import has_deep_ep
+
+print("vLLM has_deep_ep", has_deep_ep())
+assert has_deep_ep(), "vLLM does not detect deep_ep"
+PY
+
 echo "=== transport ==="
 echo "FI_PROVIDER=${FI_PROVIDER:-<unset>} UCCL_EP_TRANSPORT=${UCCL_EP_TRANSPORT:-<unset>}"
 [[ "${FI_PROVIDER:-}" == "cxi" ]] || rc=1
