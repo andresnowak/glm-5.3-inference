@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GLM-5.3 vLLM + UCCL-EP Results on Alps: GH200 and MI300A</title>
+  <style>
+    :root { --bg:#071018; --panel:#101d28; --panel2:#152634; --text:#e8f0f5; --muted:#a9bbc8; --cyan:#41d9d0; --blue:#6aa9ff; --amber:#ffbf69; --green:#62d98b; --red:#ff7474; --line:#294050; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; color:var(--text); background:linear-gradient(145deg,#061018 0%,#0b1722 45%,#071018 100%); }
+    main { max-width:1120px; margin:auto; padding:48px 24px 80px; }
+    h1 { font-size:clamp(2rem,5vw,3.7rem); line-height:1.05; margin:.2rem 0 1rem; letter-spacing:-.04em; }
+    h2 { margin:2.7rem 0 1rem; font-size:1.7rem; border-bottom:1px solid var(--line); padding-bottom:.5rem; }
+    h3 { margin:1.7rem 0 .6rem; color:#d9edf7; }
+    p { max-width:82ch; } a { color:var(--cyan); }
+    code { background:#07121b; border:1px solid #233949; border-radius:5px; padding:.1em .35em; color:#bde9ff; }
+    .eyebrow { color:var(--cyan); text-transform:uppercase; letter-spacing:.14em; font-weight:750; font-size:.78rem; }
+    .subtitle { color:var(--muted); font-size:1.08rem; max-width:78ch; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin:24px 0; }
+    .card { background:linear-gradient(145deg,var(--panel),var(--panel2)); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:0 12px 34px #0004; }
+    .metric { font-size:2rem; font-weight:800; letter-spacing:-.04em; color:white; }
+    .label { color:var(--muted); font-size:.9rem; }
+    .tag { display:inline-block; border-radius:99px; padding:.22rem .62rem; font-size:.76rem; font-weight:750; margin:.15rem .25rem .15rem 0; }
+    .ok { background:#123b27; color:#8ff0ad; border:1px solid #286640; }
+    .warn { background:#463416; color:#ffd18d; border:1px solid #765927; }
+    .no { background:#461f25; color:#ff9ca7; border:1px solid #74353e; }
+    .info { background:#143750; color:#9cd6ff; border:1px solid #285d81; }
+    .callout { border-left:4px solid var(--cyan); background:#0e202b; border-radius:0 10px 10px 0; padding:14px 18px; margin:20px 0; }
+    .warning { border-left-color:var(--amber); }
+    table { width:100%; border-collapse:collapse; margin:12px 0 24px; background:#0c1923; border:1px solid var(--line); }
+    th,td { padding:10px 12px; border-bottom:1px solid #223746; text-align:right; white-space:nowrap; }
+    th:first-child,td:first-child { text-align:left; }
+    th { color:#c7dce8; background:#132431; font-size:.83rem; }
+    tr:hover td { background:#112430; }
+    .tablewrap { overflow-x:auto; border-radius:10px; }
+    .bars { display:grid; gap:10px; margin:15px 0 24px; }
+    .barrow { display:grid; grid-template-columns:115px 1fr 80px; gap:10px; align-items:center; }
+    .track { height:16px; background:#09131b; border:1px solid #233b4a; border-radius:99px; overflow:hidden; }
+    .bar { height:100%; border-radius:99px; background:linear-gradient(90deg,var(--cyan),var(--blue)); }
+    .bar.ht { background:linear-gradient(90deg,var(--amber),#ff8668); }
+    .small { color:var(--muted); font-size:.87rem; }
+    .two { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    footer { margin-top:50px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
+    @media(max-width:600px){ main{padding:32px 14px 60px}.barrow{grid-template-columns:92px 1fr 64px}th,td{padding:8px} }
+  </style>
+</head>
+<body><main>
+  <!-- [2026-09-17T23:58] Updated with the validated ROCm benchmark from job 640649. -->
+  <div class="eyebrow">Measured CUDA + ROCm results · CSCS Alps · 2026-09-15–17</div>
+  <h1>GLM-5.3 with vLLM + UCCL-EP</h1>
+  <p class="subtitle">Measured GLM-5.3 serving results on 16 NVIDIA GH200 and 16 AMD MI300A GPUs. Both use vLLM, UCCL-EP low latency, and Slingshot/CXI. The report keeps measured results, historical CUDA HT data, and projections clearly separated.</p>
+
+  <div class="grid">
+    <div class="card"><div class="metric">16 GPUs</div><div class="label">4 nodes × 4 GPUs on both platforms</div></div>
+    <div class="card"><div class="metric">EP=16</div><div class="label">TP=2, DP=8, 16 experts/GPU</div></div>
+    <div class="card"><div class="metric">753B / 39B</div><div class="label">GLM-5.3 MoE, FP8 checkpoint</div></div>
+    <div class="card"><div class="metric">End-to-end</div><div class="label">Chat completion validated</div></div>
+  </div>
+
+  <p><span class="tag ok">CUDA LL validated</span><span class="tag ok">ROCm LL validated</span><span class="tag ok">CXI validated</span><span class="tag warn">ROCm eager only</span><span class="tag warn">CUDA HT historical</span><span class="tag no">MTP untested</span></p>
+
+  <div class="callout"><strong>Jump to:</strong> <a href="#rocm-results">ROCm / MI300A results</a> · <a href="#platform-comparison">CUDA versus ROCm</a> · <a href="bench_suite_rocm.tsv">ROCm raw TSV</a></div>
+
+  <div class="callout"><strong>Bottom line.</strong> Both 16-GPU low-latency deployments served GLM-5.3 end to end over CXI. The measured GH200/CUDA stack is substantially faster: 4.5–6.0× more output throughput across the concurrency sweep and about 6× more decode throughput. This is a comparison of validated deployments, not isolated hardware: CUDA used FP8 KV, BATCHED_DEEPGEMM, and graphs; ROCm used BF16 KV, Triton FP8 MoE, and eager execution because UCCL graph capture faulted.</div>
+
+  <h2>1. Test configuration and validation</h2>
+  <div class="two">
+    <div class="card">
+      <h3>Hardware and topology</h3>
+      <ul>
+        <li>Clariden: 4 nodes × 4 GH200, 95.0 GiB GPU memory each</li>
+        <li><code>tensor_parallel_size=2</code>, <code>data_parallel_size=8</code></li>
+        <li>Expert parallel enabled: EP=16, 16 of 256 experts per GPU</li>
+        <li>UCCL <code>e22a3e8f</code>, built with libfabric/CXI</li>
+        <li>FP8 KV cache and NUMA binding</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>End-to-end proof</h3>
+      <p>CUDA job <code>3411463</code> completed in 6:44. It served <code>POST /v1/chat/completions</code> with HTTP 200 and a coherent 337-token answer using <code>deepep_low_latency</code>, EP=16.</p>
+      <p class="small">Four nodes are the measured floor: at EP=8, routed-expert weights require about 105 GiB/GPU and do not fit.</p>
+    </div>
+  </div>
+
+  <h2>2. Backend comparison</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Metric</th><th>DeepEP LL</th><th>DeepEP HT</th><th>AllGather/ReduceScatter</th></tr></thead>
+    <tbody>
+      <tr><td>MoE kernel</td><td>BATCHED_DEEPGEMM</td><td>DEEPGEMM (forced)</td><td>FLASHINFER_CUTLASS</td></tr>
+      <tr><td>TPOT, concurrency 1</td><td><strong>42 ms</strong></td><td>241 ms</td><td>—</td></tr>
+      <tr><td>TPOT, concurrency 16</td><td>63.6 ms</td><td>248.2 ms</td><td><strong>45.6 ms</strong> at 32k</td></tr>
+      <tr><td>TTFT, 64k prompt</td><td>34.16 s</td><td><strong>12.01 s</strong></td><td>—</td></tr>
+      <tr><td>KV cache/GPU</td><td><strong>20.87 GiB</strong></td><td>10.06 GiB</td><td>7.4 GiB</td></tr>
+      <tr><td>256k context</td><td><strong>Yes</strong></td><td>No</td><td>No</td></tr>
+      <tr><td>Operational status</td><td>Works with LL BF16 router fix</td><td>Historical rows with DeepGEMM + util 0.80; later startup hang unresolved</td><td>Works, short context</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">AGRS can decode slightly faster at short context, but its activation buffers leave too little KV memory. At 256k it needs 12.86 GiB and only has 7.4 GiB, so startup fails.</p>
+
+  <h2>3. Low-latency concurrency scaling</h2>
+  <p>Workload: 1024 input tokens, 128 output tokens. LL scales nearly linearly to concurrency 4. Concurrency 16 is the practical sweet spot: roughly 10× single-stream throughput for about 1.5× TPOT.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Concurrency</th><th>Requests/s</th><th>Output tok/s</th><th>Total tok/s</th><th>TTFT</th><th>TPOT</th><th>P99 TPOT</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>0.15</td><td>19.5</td><td>178</td><td>1215 ms</td><td>42.0 ms</td><td>43.6 ms</td></tr>
+      <tr><td>4</td><td>0.56</td><td>71.9</td><td>654</td><td>1341 ms</td><td>45.4 ms</td><td>48.8 ms</td></tr>
+      <tr><td><strong>16</strong></td><td><strong>1.58</strong></td><td><strong>201.6</strong></td><td><strong>1834</strong></td><td>2023 ms</td><td>63.6 ms</td><td>73.3 ms</td></tr>
+      <tr><td>32</td><td>2.25</td><td>287.5</td><td>2615</td><td>2565 ms</td><td>90.9 ms</td><td>117.7 ms</td></tr>
+      <tr><td>64</td><td>3.31</td><td>423.1</td><td>3848</td><td>3575 ms</td><td>122.3 ms</td><td>145.6 ms</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Total throughput scaling</h3>
+  <div class="bars">
+    <div class="barrow"><span>conc 1</span><div class="track"><div class="bar" style="width:4.6%"></div></div><strong>178</strong></div>
+    <div class="barrow"><span>conc 4</span><div class="track"><div class="bar" style="width:17%"></div></div><strong>654</strong></div>
+    <div class="barrow"><span>conc 16</span><div class="track"><div class="bar" style="width:47.7%"></div></div><strong>1834</strong></div>
+    <div class="barrow"><span>conc 32</span><div class="track"><div class="bar" style="width:68%"></div></div><strong>2615</strong></div>
+    <div class="barrow"><span>conc 64</span><div class="track"><div class="bar" style="width:100%"></div></div><strong>3848</strong></div>
+  </div>
+
+  <h2>4. Long-prompt prefill: recorded HT advantage</h2>
+  <p>Concurrency 1 with eight output tokens isolates prefill and TTFT. HT becomes more valuable as context grows.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Prompt</th><th>HT TTFT</th><th>LL TTFT</th><th>HT speedup</th><th>Time saved</th><th>HT total tok/s</th><th>LL total tok/s</th></tr></thead>
+    <tbody>
+      <tr><td>1k</td><td>0.81 s</td><td>1.21 s</td><td>1.49×</td><td>0.4 s</td><td>418</td><td>689</td></tr>
+      <tr><td>4k</td><td>1.38 s</td><td>3.38 s</td><td>2.45×</td><td>2.0 s</td><td>1355</td><td>1119</td></tr>
+      <tr><td>16k</td><td>4.14 s</td><td>10.81 s</td><td>2.61×</td><td>6.7 s</td><td>2828</td><td>1480</td></tr>
+      <tr><td>32k</td><td>8.04 s</td><td>19.23 s</td><td>2.39×</td><td>11.2 s</td><td>3384</td><td>1682</td></tr>
+      <tr><td><strong>64k</strong></td><td><strong>12.01 s</strong></td><td><strong>34.16 s</strong></td><td><strong>2.84×</strong></td><td><strong>22.2 s</strong></td><td><strong>4802</strong></td><td>1906</td></tr>
+    </tbody>
+  </table></div>
+  <div class="bars">
+    <div class="barrow"><span>64k HT</span><div class="track"><div class="bar ht" style="width:35.2%"></div></div><strong>12.01 s</strong></div>
+    <div class="barrow"><span>64k LL</span><div class="track"><div class="bar" style="width:100%"></div></div><strong>34.16 s</strong></div>
+  </div>
+
+  <h2>5. Decode: LL wins</h2>
+  <p>At concurrency 1, LL takes 42 ms/token while HT takes 241 ms/token: LL is about <strong>5.7× faster</strong>. HT remains near 246 ms across concurrency levels; LL rises from 42 to 122 ms as concurrency increases but remains substantially faster.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Concurrency</th><th>LL TPOT</th><th>HT TPOT</th><th>LL output tok/s</th><th>HT output tok/s</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>42.04 ms</strong></td><td>240.58 ms</td><td><strong>19.53</strong></td><td>4.08</td></tr>
+      <tr><td>4</td><td><strong>45.43 ms</strong></td><td>246.03 ms</td><td><strong>71.89</strong></td><td>15.93</td></tr>
+      <tr><td>16</td><td><strong>63.61 ms</strong></td><td>248.21 ms</td><td><strong>201.63</strong></td><td>61.87</td></tr>
+      <tr><td>32</td><td><strong>90.85 ms</strong></td><td>246.31 ms</td><td><strong>287.51</strong></td><td>122.58</td></tr>
+      <tr><td>64</td><td><strong>122.25 ms</strong></td><td>253.69 ms</td><td><strong>423.12</strong></td><td>227.65</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>6. Memory and context capacity</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Per GPU, 95.0 GiB</th><th>LL</th><th>HT at util 0.80</th></tr></thead>
+    <tbody>
+      <tr><td>Weights + non-Torch</td><td>60.99 GiB</td><td>~61 GiB</td></tr>
+      <tr><td>Peak activation</td><td>1.97 GiB</td><td>Larger; OOM at util 0.90</td></tr>
+      <tr><td>CUDA graph pool</td><td>0.69 GiB</td><td>n/a</td></tr>
+      <tr><td>KV cache</td><td><strong>20.87 GiB</strong></td><td>10.06 GiB</td></tr>
+      <tr><td>KV capacity</td><td><strong>415,296 tokens</strong></td><td>~200k tokens</td></tr>
+    </tbody>
+  </table></div>
+  <p>LL provides 1.62× concurrency at 256k and about 12.68× at 32k. The native 1M-token window was not measured; an 8-node EP=32 deployment is projected to halve expert weight per GPU and roughly double KV capacity.</p>
+
+  <h2>7. What HT required</h2>
+  <div class="callout warning"><strong>Scope matters:</strong> <code>docs/deepep-high-throughput.md</code> records HT hangs under the 256k and earlier configurations. The raw TSVs separately contain successful-looking HT benchmark datapoints with <code>deep_gemm</code>, lower context, and memory utilization 0.80, but the repository has no retained run IDs or raw logs tying them to a final reliable configuration. Preserve the values as historical recorded measurements; treat current HT serving as unusable until the dedicated hang is fixed and the benchmark is reproduced.</div>
+  <ol>
+    <li><strong>Use upstream UCCL.</strong> The stale swiss-ai fork crashed in the internode kernel; all retained measurements use upstream <code>e22a3e8f</code>.</li>
+    <li><strong>Force <code>--moe-backend deep_gemm</code>.</strong> FlashInfer CUTLASS autotuning performs collective all-reduces over rank-dependent local shapes under EP, causing mismatched collectives and deadlock.</li>
+    <li><strong>Set <code>GPU_MEM_UTIL=0.80</code>.</strong> HT’s ragged activation layout OOMs at 0.90.</li>
+    <li><strong>Keep the CUDA-graph guard fix.</strong> vLLM’s HT guard is behind the wrong early return. Disabling graphs alone did not solve the original hang, but the guard is still a real correctness fix.</li>
+  </ol>
+  <p>In the unresolved HT-hang investigation, disproved causes included shared-memory size, architecture, rank count, buffer capacity, FP8 dispatch, zero-token ranks, NUMA binding, graph capture by itself, and changing QPs per rank from 10 to 24. Standalone UCCL dispatch/combine passed; the remaining hang was specific to the vLLM integration/configuration.</p>
+
+  <h2>8. Compatibility patches</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Patch</th><th>CUDA result</th></tr></thead>
+    <tbody>
+      <tr><td><code>fix_ll_bf16_availability.py</code></td><td>Needed: router GEMM availability must include Quack, not only CUTLASS.</td></tr>
+      <tr><td><code>fix_deepep_ht_cudagraph_guard.py</code></td><td>Real vLLM control-flow bug; keeps HT out of incompatible graph capture.</td></tr>
+      <tr><td><code>add_enable_shrink.py</code></td><td>No-op with UCCL <code>e22a3e8f</code>, which already accepts the argument.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>9. Weight loading</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Loader for 703.74 GiB</th><th>Measured time</th><th>Relative result</th></tr></thead>
+    <tbody>
+      <tr><td>Default safetensors</td><td>255–434 s</td><td>baseline</td></tr>
+      <tr><td><strong>Run:ai Model Streamer</strong></td><td><strong>58–105 s</strong></td><td><strong>2.4–4.4× faster</strong></td></tr>
+    </tbody>
+  </table></div>
+  <p>Time to serving fell from roughly 660 s to 285 s. Variation is attributed to shared-filesystem contention.</p>
+
+  <h2>10. Prefill/decode disaggregation opportunity</h2>
+  <p>Measured LL and HT numbers imply the following for a 64k prompt followed by 500 generated tokens:</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Plan</th><th>Estimated end-to-end time</th></tr></thead>
+    <tbody>
+      <tr><td>LL only</td><td>51.7 s</td></tr>
+      <tr><td>HT only</td><td>129.5 s</td></tr>
+      <tr><td><strong>HT prefill → LL decode</strong></td><td><strong>33.2 s</strong></td></tr>
+    </tbody>
+  </table></div>
+  <p>Using the recorded historical HT datapoints, the split is estimated to be 1.56× faster than LL-only. The estimate includes 0.15 s for transferring about 3.3 GB of MLA KV at measured UCCL Slingshot bandwidth. <strong>This deployment was not wired or run end to end.</strong> NIXL 1.3.0 is present in the CUDA image, but connector work remains.</p>
+
+  <h2>11. CUDA conclusions</h2>
+  <ul>
+    <li><strong>General serving:</strong> use <code>deepep_low_latency</code>.</li>
+    <li><strong>Long prefill tier:</strong> historical HT datapoints are compelling from 4k onward, but must be reproduced after the unresolved vLLM startup hang is fixed.</li>
+    <li><strong>Short-context decode:</strong> AGRS can be fastest, but loses too much KV capacity for long context.</li>
+    <li><strong>Best measured operating point:</strong> LL at concurrency 16 balances throughput and latency.</li>
+    <li><strong>Do not present projections as measurements:</strong> P/D disaggregation, 8-node EP=32, native 1M context, and MTP remain unvalidated.</li>
+  </ul>
+
+
+  <h2 id="rocm-results">12. ROCm / MI300A validation</h2>
+  <div class="two">
+    <div class="card">
+      <h3>Validated deployment</h3>
+      <ul>
+        <li>4 nodes × 4 AMD MI300A, 128 GiB unified HBM per APU</li>
+        <li><code>TP=2</code>, <code>DP=8</code>, <code>EP=16</code></li>
+        <li>UCCL <code>d94b5bf2</code> with the runtime-top-k assertion fix</li>
+        <li>UCCL low latency over libfabric/CXI</li>
+        <li>AITER sparse MLA; Triton FP8 MoE; native vLLM sampler</li>
+        <li>BF16 KV cache; <code>GPU_MEM_UTIL=0.70</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Evidence</h3>
+      <p>Smoke job <code>640358</code> returned an HTTP 200 completion with 256 generated tokens. Benchmark job <code>640649</code> reached API readiness and completed all 11 repository suite points with every request successful.</p>
+      <p><strong>Memory:</strong> 61.59 GiB weights/non-Torch, 1.73 GiB peak activation, 26.28 GiB KV cache, and 304,656 KV tokens per engine.</p>
+    </div>
+  </div>
+
+  <div class="callout warning"><strong>Why eager mode?</strong> ROCm graph job <code>640433</code> faulted during capture in UCCL kernel <code>intranode::barrier&lt;4&gt;</code> with <code>HSA_STATUS_ERROR_EXCEPTION</code>. The final benchmark therefore used <code>--enforce-eager</code>. Jobs at memory utilization 0.85 and 0.80 hit host OOM during warm-up or concurrency 16; 0.70 completed the full suite.</div>
+
+  <h3>ROCm concurrency scaling</h3>
+  <p>Workload: 1024 input tokens, 128 output tokens. Throughput continues to scale through concurrency 64, but latency rises sharply.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Concurrency</th><th>Requests/s</th><th>Output tok/s</th><th>Total tok/s</th><th>TTFT</th><th>TPOT</th><th>P99 TPOT</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>0.03</td><td>3.27</td><td>29.77</td><td>4693 ms</td><td>270.92 ms</td><td>275.88 ms</td></tr>
+      <tr><td>4</td><td>0.10</td><td>12.30</td><td>111.82</td><td>5452 ms</td><td>284.80 ms</td><td>295.57 ms</td></tr>
+      <tr><td>16</td><td>0.29</td><td>37.63</td><td>342.19</td><td>9288 ms</td><td>351.04 ms</td><td>392.37 ms</td></tr>
+      <tr><td>32</td><td>0.50</td><td>64.40</td><td>585.68</td><td>10452 ms</td><td>412.11 ms</td><td>482.64 ms</td></tr>
+      <tr><td>64</td><td>0.73</td><td>93.20</td><td>847.53</td><td>15542 ms</td><td>557.55 ms</td><td>669.19 ms</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>ROCm prefill and decode</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Scenario</th><th>Input</th><th>Output</th><th>Concurrency</th><th>Output tok/s</th><th>Total tok/s</th><th>TTFT</th><th>TPOT</th></tr></thead>
+    <tbody>
+      <tr><td>Prefill</td><td>1024</td><td>32</td><td>8</td><td>24.81</td><td>828.10</td><td>0.80 s</td><td>291.35 ms</td></tr>
+      <tr><td>Prefill</td><td>4096</td><td>32</td><td>8</td><td>8.27</td><td>1069.64</td><td>20.58 s</td><td>319.11 ms</td></tr>
+      <tr><td>Prefill</td><td>16384</td><td>32</td><td>8</td><td>2.41</td><td>1236.91</td><td>89.31 s</td><td>498.28 ms</td></tr>
+      <tr><td>Decode</td><td>256</td><td>128</td><td>8</td><td>27.22</td><td>84.21</td><td>0.77 s</td><td>289.00 ms</td></tr>
+      <tr><td>Decode</td><td>256</td><td>512</td><td>8</td><td>27.53</td><td>41.93</td><td>0.72 s</td><td>289.53 ms</td></tr>
+      <tr><td>Decode</td><td>256</td><td>1024</td><td>8</td><td>27.41</td><td>34.58</td><td>0.73 s</td><td>291.36 ms</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">Decode throughput is stable near 27.4 output tok/s as output length grows, and TPOT stays near 290 ms. Long-prompt TTFT is the weakest ROCm result: 89.31 s at 16k input.</p>
+
+  <h2 id="platform-comparison">13. CUDA versus ROCm</h2>
+  <div class="callout warning"><strong>Qualified comparison.</strong> The request suite and 4-node/16-GPU topology match, but the software paths do not. CUDA used a newer vLLM stack, FP8 KV cache, BATCHED_DEEPGEMM MoE, and graph execution. ROCm used BF16 KV cache, Triton FP8 MoE, and eager execution at lower memory utilization. These measurements describe the deployed stacks; they do not isolate GH200 versus MI300A silicon.</div>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Same workload</th><th>CUDA out tok/s</th><th>ROCm out tok/s</th><th>CUDA throughput advantage</th><th>CUDA TTFT</th><th>ROCm TTFT</th><th>ROCm/CUDA TPOT</th></tr></thead>
+    <tbody>
+      <tr><td>Scaling c1</td><td>19.53</td><td>3.27</td><td>5.97×</td><td>1.21 s</td><td>4.69 s</td><td>6.44×</td></tr>
+      <tr><td>Scaling c4</td><td>71.89</td><td>12.30</td><td>5.84×</td><td>1.34 s</td><td>5.45 s</td><td>6.27×</td></tr>
+      <tr><td>Scaling c16</td><td>201.63</td><td>37.63</td><td>5.36×</td><td>2.02 s</td><td>9.29 s</td><td>5.52×</td></tr>
+      <tr><td>Scaling c32</td><td>287.51</td><td>64.40</td><td>4.46×</td><td>2.56 s</td><td>10.45 s</td><td>4.54×</td></tr>
+      <tr><td>Scaling c64</td><td>423.12</td><td>93.20</td><td>4.54×</td><td>3.57 s</td><td>15.54 s</td><td>4.56×</td></tr>
+      <tr><td>Prefill 1k→32</td><td>93.27</td><td>24.81</td><td>3.76×</td><td>0.83 s</td><td><strong>0.80 s</strong></td><td>4.91×</td></tr>
+      <tr><td>Prefill 4k→32</td><td>29.54</td><td>8.27</td><td>3.57×</td><td>4.89 s</td><td>20.58 s</td><td>2.78×</td></tr>
+      <tr><td>Prefill 16k→32</td><td>9.09</td><td>2.41</td><td>3.77×</td><td>19.78 s</td><td>89.31 s</td><td>2.74×</td></tr>
+      <tr><td>Decode 256→128</td><td>158.20</td><td>27.22</td><td>5.81×</td><td>0.36 s</td><td>0.77 s</td><td>6.04×</td></tr>
+      <tr><td>Decode 256→512</td><td>156.77</td><td>27.53</td><td>5.69×</td><td>0.37 s</td><td>0.72 s</td><td>5.75×</td></tr>
+      <tr><td>Decode 256→1024</td><td>167.98</td><td>27.41</td><td>6.13×</td><td>0.46 s</td><td>0.73 s</td><td>6.18×</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>What the comparison supports</h3>
+  <ul>
+    <li><strong>Measured:</strong> the tested CUDA deployment delivers 4.5–6.0× more output throughput in concurrency scaling and 5.7–6.1× more in decode.</li>
+    <li><strong>Measured:</strong> ROCm scales from 3.27 to 93.20 output tok/s between concurrency 1 and 64, a 28.5× increase.</li>
+    <li><strong>Measured exception:</strong> ROCm’s 1k prefill TTFT was 0.80 s versus CUDA’s 0.83 s, but CUDA retained 3.76× higher output throughput for that point.</li>
+    <li><strong>Not established:</strong> how much of the gap comes from hardware versus graph mode, KV dtype, vLLM revision, or MoE kernel choice.</li>
+  </ul>
+
+  <h2>14. Combined conclusions</h2>
+  <ul>
+    <li>Both platforms completed end-to-end GLM-5.3 low-latency serving over UCCL/CXI at TP=2, DP=8, EP=16.</li>
+    <li>The current GH200/CUDA deployment is the production performance choice.</li>
+    <li>The MI300A/ROCm deployment is functional, reproducible, and stable at memory utilization 0.70, but needs graph-safe UCCL and a faster MoE path before performance is competitive.</li>
+    <li>ROCm HT serving, graph execution, FP8 KV, and a DeepGEMM-class MoE backend remain unvalidated.</li>
+  </ul>
+
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="RESULTS.md"><code>results/RESULTS.md</code></a> — authoritative narrative and measured summary</li>
+    <li><a href="bench_suite.tsv"><code>results/bench_suite.tsv</code></a> — concurrency, prefill, and decode raw data</li>
+    <li><a href="bench_prefill.tsv"><code>results/bench_prefill.tsv</code></a> — CUDA long-context TTFT raw data</li>
+    <li><a href="bench_suite_rocm.tsv"><code>results/bench_suite_rocm.tsv</code></a> — final ROCm 11-point benchmark</li>
+    <li><a href="rocm-640649/"><code>results/rocm-640649/</code></a> — per-point ROCm logs and suite log</li>
+    <li><a href="../docs/HANDOFF.md"><code>docs/HANDOFF.md</code></a> — final CUDA handoff and end-to-end validation</li>
+    <li><a href="../docs/deepep-high-throughput.md"><code>docs/deepep-high-throughput.md</code></a> — chronological HT investigation; early headline is stale</li>
+  </ul>
+
+  <footer>Combined measured CUDA and ROCm report. Updated 2026-09-17 from repository CUDA records and ROCm job <code>640649</code>. Ratios are computed only between matching suite rows. Historical CUDA HT measurements and the P/D estimate remain explicitly labeled; no ROCm values are projected.</footer>
+</main></body></html>

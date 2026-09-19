@@ -1,0 +1,12 @@
+label	scenario	in_len	out_len	prompts	conc	req_s	out_tok_s	total_tok_s	ttft_ms	tpot_ms	p99_tpot_ms
+rocm_deepep_low_latency	conc-scaling	1024	128	4	1	0.03	3.27	29.77	4692.99	270.92	275.88
+rocm_deepep_low_latency	conc-scaling	1024	128	16	4	0.10	12.30	111.82	5451.57	284.80	295.57
+rocm_deepep_low_latency	conc-scaling	1024	128	64	16	0.29	37.63	342.19	9288.40	351.04	392.37
+rocm_deepep_low_latency	conc-scaling	1024	128	128	32	0.50	64.40	585.68	10451.54	412.11	482.64
+rocm_deepep_low_latency	conc-scaling	1024	128	256	64	0.73	93.20	847.53	15542.40	557.55	669.19
+rocm_deepep_low_latency	prefill	1024	32	16	8	0.78	24.81	828.10	799.35	291.35	302.23
+rocm_deepep_low_latency	prefill	4096	32	16	8	0.26	8.27	1069.64	20579.13	319.11	393.88
+rocm_deepep_low_latency	prefill	16384	32	16	8	0.08	2.41	1236.91	89314.59	498.28	678.10
+rocm_deepep_low_latency	decode	256	128	16	8	0.21	27.22	84.21	773.54	289.00	290.20
+rocm_deepep_low_latency	decode	256	512	16	8	0.05	27.53	41.93	718.90	289.53	290.52
+rocm_deepep_low_latency	decode	256	1024	16	8	0.03	27.41	34.58	726.39	291.36	291.57
