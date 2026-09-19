@@ -34,7 +34,7 @@ bench_point() {
   failed="$(metric "${log}" 'Failed requests')"
   if [[ "${successful}" != "${prompts}" || "${failed}" != "0" ]]; then
     printf 'benchmark point failed: successful=%s/%s failed=%s; see %s\n' \
-      "${successful:-unknown}" "${prompts}" "${failed:-unknown}" "${log}" >&2
+      "${successful}" "${prompts}" "${failed}" "${log}" >&2
     return 1
   fi
 

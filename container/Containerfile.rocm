@@ -91,7 +91,6 @@ RUN set -eux; \
     git -C /tmp/uccl remote add origin "${UCCL_REPO}"; \
     git -C /tmp/uccl fetch -q --depth 1 origin "${UCCL_REF}"; \
     git -C /tmp/uccl checkout -q FETCH_HEAD; \
-    git -C /tmp/uccl apply --check /tmp/uccl-rocm-ll-runtime-topk.patch; \
     git -C /tmp/uccl apply /tmp/uccl-rocm-ll-runtime-topk.patch; \
     real_cxx="$(command -v c++)"; \
     printf '#include <rdma/fi_domain.h>\n#define FI_HMEM_CUDA FI_HMEM_ROCR\n' > /tmp/uccl-rocm-hmem.h; \
@@ -123,19 +122,13 @@ RUN set -eux; \
         libnl-route-3-dev libnuma-dev ninja-build pkg-config python3-dev; \
     rm -f /tmp/uccl-apt-before.txt
 
-# UCCL must resolve HIP from the same ROCm SDK package that Torch loads. If it
-# resolves _rocm_sdk_devel first, importing UCCL before Torch loads two COMGR/LLVM
-# copies and aborts on duplicate LLVM command-line option registration. The host
-# CXI libfabric dlopens the unversioned HSA runtime, which the core package omits.
-# The host CXI plugin resolves that name when it initializes FI_HMEM_ROCR.
-# Use a plain symlink to the validated core runtime. A shutdown-interposition
-# experiment remains out of the image until it has separate validation.
+# Use Torch's ROCm SDK HSA runtime to avoid loading duplicate COMGR/LLVM copies.
+# The CXI plugin needs the unversioned library name when FI_HMEM_ROCR initializes.
 RUN set -eux; \
     hsa_runtime=/opt/venv/lib/python3.12/site-packages/_rocm_sdk_core/lib/libhsa-runtime64.so.1; \
     test -e "${hsa_runtime}"; \
     mkdir -p /opt/rocm-hmem/lib; \
-    ln -s "${hsa_runtime}" /opt/rocm-hmem/lib/libhsa-runtime64.so; \
-    test -e /opt/rocm-hmem/lib/libhsa-runtime64.so
+    ln -s "${hsa_runtime}" /opt/rocm-hmem/lib/libhsa-runtime64.so
 ENV LD_LIBRARY_PATH=/opt/rocm-hmem/lib:/opt/venv/lib/python3.12/site-packages/_rocm_sdk_core/lib:/opt/venv/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH}
 ENV UCCL_EP_TRANSPORT=cxi
 
@@ -164,25 +157,23 @@ RUN set -eux; \
 # Add that stack only when prefill/decode disaggregation is required.
 
 # Ship the same smoke test used after export.
-COPY tests/import_smoke_rocm.sh /opt/tests/vllm-rocm/import_smoke.sh
-RUN chmod a+rx /opt/tests/vllm-rocm/import_smoke.sh
+COPY --chmod=0755 tests/import_smoke_rocm.sh /opt/tests/vllm-rocm/import_smoke.sh
 
 # Final build-time verification. A runtime GPU test follows after SquashFS export.
 RUN set -eux; \
     python - <<'PY'
 import importlib.metadata as md
+import importlib.util
 import os
 import subprocess
 
 import deep_ep
-import importlib.util
 import runai_model_streamer
-from uccl import ep
 import torch
+from uccl import ep
 
 assert torch.version.hip, "ROCm torch is required"
 assert importlib.util.find_spec("vllm"), "vLLM package is required"
-assert importlib.util.find_spec("deep_ep"), "UCCL's deep_ep wrapper is required"
 aiter_spec = importlib.util.find_spec("aiter")
 assert aiter_spec, "AITER package is required"
 assert os.environ.get("UCCL_EP_TRANSPORT") == "cxi"
@@ -195,4 +186,3 @@ print("runai_model_streamer", runai_model_streamer.__file__)
 linked = subprocess.check_output(["ldd", ep.__file__], text=True)
 assert "not found" not in linked, linked
 PY
-RUN python -m pip check || echo 'WARN: pip metadata reports dependency inconsistencies'
