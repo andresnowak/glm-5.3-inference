@@ -46,23 +46,24 @@
   </style>
 </head>
 <body><main>
-  <!-- [2026-09-17T23:58] Updated with the validated ROCm benchmark from job 640649. -->
-  <div class="eyebrow">Measured CUDA + ROCm results · CSCS Alps · 2026-09-15–17</div>
+  <!-- [2026-10-03] Added completed ROCm benchmark job 662284; job 640649 remains historical. -->
+  <div class="eyebrow">Measured CUDA + ROCm results · CSCS Alps · updated 2026-10-03</div>
   <h1>GLM-5.3 with vLLM + UCCL-EP</h1>
-  <p class="subtitle">Measured GLM-5.3 serving results on 16 NVIDIA GH200 and 16 AMD MI300A GPUs. Both use vLLM, UCCL-EP low latency, and Slingshot/CXI. The report keeps measured results, historical CUDA HT data, and projections clearly separated.</p>
+  <p class="subtitle">Measured GLM-5.3 serving results on 16 NVIDIA GH200 and 16 AMD MI300A GPUs. The report distinguishes transport/request-completion evidence from answer correctness, and keeps historical runs and the latest benchmark measurements clearly labeled.</p>
 
   <div class="grid">
     <div class="card"><div class="metric">16 GPUs</div><div class="label">4 nodes × 4 GPUs on both platforms</div></div>
     <div class="card"><div class="metric">EP=16</div><div class="label">TP=2, DP=8, 16 experts/GPU</div></div>
     <div class="card"><div class="metric">753B / 39B</div><div class="label">GLM-5.3 MoE, FP8 checkpoint</div></div>
-    <div class="card"><div class="metric">End-to-end</div><div class="label">Chat completion validated</div></div>
+    <div class="card"><div class="metric">Correctness TODO</div><div class="label">Current generated answers are garbled; new ROCm fusion run unverified</div></div>
   </div>
 
-  <p><span class="tag ok">CUDA LL validated</span><span class="tag ok">ROCm LL validated</span><span class="tag ok">CXI validated</span><span class="tag warn">ROCm eager only</span><span class="tag warn">CUDA HT historical</span><span class="tag no">MTP untested</span></p>
+  <p><span class="tag info">CUDA benchmark recorded</span><span class="tag warn">ROCm job 662284 completed · 11/11</span><span class="tag info">CXI transport exercised</span><span class="tag no">Answer correctness TODO</span><span class="tag warn">Job 640649 historical</span><span class="tag no">MTP untested</span></p>
+  <div class="callout warning"><strong>TODO — correctness is not established.</strong> The model currently generates garbled text. Prior correctness attempts failed (2+2); the new ROCm shared-fusion configuration has not been correctness-verified. HTTP success, request completion, benchmark throughput, and transport operation do not demonstrate a correct answer. Do not claim coherent output, validated serving, or production readiness; no same-experts-routing claim is established.</div>
 
-  <div class="callout"><strong>Jump to:</strong> <a href="#rocm-results">ROCm / MI300A results</a> · <a href="#platform-comparison">CUDA versus ROCm</a> · <a href="bench_suite_rocm.tsv">ROCm raw TSV</a></div>
+  <div class="callout"><strong>Jump to:</strong> <a href="#rocm-662284">Latest ROCm job 662284</a> · <a href="#rocm-results">Historical ROCm job 640649</a> · <a href="#platform-comparison">CUDA versus ROCm</a> · <a href="rocm-662284/bench_suite_rocm.tsv">Latest ROCm raw TSV</a></div>
 
-  <div class="callout"><strong>Bottom line.</strong> Both 16-GPU low-latency deployments served GLM-5.3 end to end over CXI. The measured GH200/CUDA stack is substantially faster: 4.5–6.0× more output throughput across the concurrency sweep and about 6× more decode throughput. This is a comparison of validated deployments, not isolated hardware: CUDA used FP8 KV, BATCHED_DEEPGEMM, and graphs; ROCm used BF16 KV, Triton FP8 MoE, and eager execution because UCCL graph capture faulted.</div>
+  <div class="callout warning"><strong>Evidence boundary.</strong> Benchmarks show that requests completed and record throughput/latency; they do not establish answer correctness or production suitability. Job 640649 is historical. Job 662284 completed all 11 benchmark points with a different ROCm recipe; compare only matching workload keys. Answer correctness remains unverified.</div>
 
   <h2>1. Test configuration and validation</h2>
   <div class="two">
@@ -77,8 +78,8 @@
       </ul>
     </div>
     <div class="card">
-      <h3>End-to-end proof</h3>
-      <p>CUDA job <code>3411463</code> completed in 6:44. It served <code>POST /v1/chat/completions</code> with HTTP 200 and a coherent 337-token answer using <code>deepep_low_latency</code>, EP=16.</p>
+      <h3>Request-completion evidence (not correctness proof)</h3>
+      <p>CUDA job <code>3411463</code> completed in 6:44 and returned HTTP 200 for <code>POST /v1/chat/completions</code>. HTTP success establishes request completion only, not that the generated answer was correct.</p>
       <p class="small">Four nodes are the measured floor: at EP=8, routed-expert weights require about 105 GiB/GPU and do not fit.</p>
     </div>
   </div>
@@ -215,10 +216,10 @@
   </ul>
 
 
-  <h2 id="rocm-results">12. ROCm / MI300A validation</h2>
+  <h2 id="rocm-results">12. Historical ROCm / MI300A measurements — job 640649</h2>
   <div class="two">
     <div class="card">
-      <h3>Validated deployment</h3>
+      <h3>Historical deployment configuration</h3>
       <ul>
         <li>4 nodes × 4 AMD MI300A, 128 GiB unified HBM per APU</li>
         <li><code>TP=2</code>, <code>DP=8</code>, <code>EP=16</code></li>
@@ -229,8 +230,8 @@
       </ul>
     </div>
     <div class="card">
-      <h3>Evidence</h3>
-      <p>Smoke job <code>640358</code> returned an HTTP 200 completion with 256 generated tokens. Benchmark job <code>640649</code> reached API readiness and completed all 11 repository suite points with every request successful.</p>
+      <h3>Historical request-completion evidence</h3>
+      <p>Smoke job <code>640358</code> returned HTTP 200 with 256 generated tokens. Benchmark job <code>640649</code> reached API readiness and recorded all 11 repository suite points with successful requests. Neither establishes answer correctness; keep these measurements historical and do not relabel them as current.</p>
       <p><strong>Memory:</strong> 61.59 GiB weights/non-Torch, 1.73 GiB peak activation, 26.28 GiB KV cache, and 304,656 KV tokens per engine.</p>
     </div>
   </div>
@@ -264,8 +265,32 @@
   </table></div>
   <p class="small">Decode throughput is stable near 27.4 output tok/s as output length grows, and TPOT stays near 290 ms. Long-prompt TTFT is the weakest ROCm result: 89.31 s at 16k input.</p>
 
-  <h2 id="platform-comparison">13. CUDA versus ROCm</h2>
-  <div class="callout warning"><strong>Qualified comparison.</strong> The request suite and 4-node/16-GPU topology match, but the software paths do not. CUDA used a newer vLLM stack, FP8 KV cache, BATCHED_DEEPGEMM MoE, and graph execution. ROCm used BF16 KV cache, Triton FP8 MoE, and eager execution at lower memory utilization. These measurements describe the deployed stacks; they do not isolate GH200 versus MI300A silicon.</div>
+  <h2 id="rocm-662284">13. Latest ROCm / MI300A benchmark — job 662284 (11/11 completed)</h2>
+  <div class="callout warning"><strong>Status: all 11 points completed; Slurm exit 0; elapsed 46:46.</strong> The table below transcribes the final TSV. Every benchmark request completed successfully; this is throughput evidence only, not a correctness pass.</div>
+  <h3>Recipe (2026-10-03)</h3>
+  <p>AITER linear MoE with shared-expert fusion; FP8 E4M3 KV cache; AllGather/ReduceScatter; eager execution; <code>GPU_MEM_UTIL=0.70</code>; 192 CPU; max context 32,768; max sequences 64; four MI300A nodes (16 GPUs), <code>TP=2</code>, <code>DP=8</code>, <code>EP=16</code>. vLLM <code>0.27.2.dev</code> (the compared CUDA stack is <code>0.29</code>).</p>
+  <div class="callout warning"><strong>Correctness remains unverified.</strong> Current generated text is garbled. Earlier 2+2 correctness attempts failed, and this new fusion configuration has not been correctness-tested. Completion/transport and benchmark metrics are not answer-quality evidence; make no coherent-output, production-validation, or same-experts-routing claim.</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Scenario</th><th>Input → output</th><th>Concurrency</th><th>ROCm output tok/s</th><th>CUDA output tok/s</th><th>CUDA / ROCm</th></tr></thead>
+    <tbody>
+      <tr><td>Scaling</td><td>1024 → 128</td><td>1</td><td>4.59</td><td>19.53</td><td>4.25×</td></tr>
+      <tr><td>Scaling</td><td>1024 → 128</td><td>4</td><td>17.10</td><td>71.89</td><td>4.20×</td></tr>
+      <tr><td>Scaling</td><td>1024 → 128</td><td>16</td><td>59.24</td><td>201.63</td><td>3.40×</td></tr>
+      <tr><td>Scaling</td><td>1024 → 128</td><td>32</td><td>101.65</td><td>287.51</td><td>2.83×</td></tr>
+      <tr><td>Scaling</td><td>1024 → 128</td><td>64</td><td>154.36</td><td>423.12</td><td>2.74×</td></tr>
+      <tr><td>Prefill</td><td>1024 → 32</td><td>8</td><td>30.88</td><td>93.27</td><td>3.02×</td></tr>
+      <tr><td>Prefill</td><td>4096 → 32</td><td>8</td><td>18.29</td><td>29.54</td><td>1.62×</td></tr>
+      <tr><td>Prefill</td><td>16384 → 32</td><td>8</td><td>7.13</td><td>9.09</td><td>1.27×</td></tr>
+      <tr><td>Decode</td><td>256 → 128</td><td>8</td><td>36.90</td><td>158.20</td><td>4.29×</td></tr>
+      <tr><td>Decode</td><td>256 → 512</td><td>8</td><td>35.79</td><td>156.77</td><td>4.38×</td></tr>
+      <tr><td>Decode</td><td>256 → 1024</td><td>8</td><td>35.59</td><td>167.98</td><td>4.72×</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">CUDA values are from the matching <code>deepep_low_latency</code> rows in <code>results/bench_suite.tsv</code>; ratios are CUDA/ROCm output throughput, rounded to two decimals. Workload-key matches are input length, output length, and concurrency. No answer-correctness or hardware-only inference follows from this throughput comparison.</p>
+  <p class="small">Retained artifacts: <a href="rocm-662284/bench_suite_rocm.tsv"><code>results/rocm-662284/bench_suite_rocm.tsv</code></a> · <a href="rocm-662284/run-config.txt"><code>results/rocm-662284/run-config.txt</code></a>.</p>
+
+  <h2 id="platform-comparison">14. Historical CUDA versus ROCm comparison — ROCm job 640649</h2>
+  <div class="callout warning"><strong>Historical, not the latest ROCm result.</strong> The table below compares the 640649 ROCm rows to matching CUDA <code>deepep_low_latency</code> rows. It is not a comparison for job 662284 and does not isolate hardware: software paths and settings differ.</div>
 
   <div class="tablewrap"><table>
     <thead><tr><th>Same workload</th><th>CUDA out tok/s</th><th>ROCm out tok/s</th><th>CUDA throughput advantage</th><th>CUDA TTFT</th><th>ROCm TTFT</th><th>ROCm/CUDA TPOT</th></tr></thead>
@@ -292,12 +317,12 @@
     <li><strong>Not established:</strong> how much of the gap comes from hardware versus graph mode, KV dtype, vLLM revision, or MoE kernel choice.</li>
   </ul>
 
-  <h2>14. Combined conclusions</h2>
+  <h2>15. Combined conclusions</h2>
   <ul>
-    <li>Both platforms completed end-to-end GLM-5.3 low-latency serving over UCCL/CXI at TP=2, DP=8, EP=16.</li>
-    <li>The current GH200/CUDA deployment is the production performance choice.</li>
-    <li>The MI300A/ROCm deployment is functional, reproducible, and stable at memory utilization 0.70, but needs graph-safe UCCL and a faster MoE path before performance is competitive.</li>
-    <li>ROCm HT serving, graph execution, FP8 KV, and a DeepGEMM-class MoE backend remain unvalidated.</li>
+    <li>Recorded benchmark requests completed over the tested stacks; this does not establish correct generated answers.</li>
+    <li>Job 640649 ROCm figures are historical. Job 662284 is the latest ROCm benchmark and completed all 11 suite rows.</li>
+    <li>The 662284 AITER linear/shared-fusion, FP8-KV, AllGather/ReduceScatter recipe is not correctness-verified; generated text is currently garbled.</li>
+    <li>No production-readiness or same-experts-routing claim is supported. Performance comparisons are limited to matching benchmark keys and do not isolate hardware.</li>
   </ul>
 
   <h2>Sources</h2>
@@ -305,10 +330,12 @@
     <li><a href="RESULTS.md"><code>results/RESULTS.md</code></a> — authoritative narrative and measured summary</li>
     <li><a href="bench_suite.tsv"><code>results/bench_suite.tsv</code></a> — concurrency, prefill, and decode raw data</li>
     <li><a href="bench_prefill.tsv"><code>results/bench_prefill.tsv</code></a> — CUDA long-context TTFT raw data</li>
-    <li><a href="bench_suite_rocm.tsv"><code>results/bench_suite_rocm.tsv</code></a> — final ROCm 11-point benchmark</li>
-    <li><a href="rocm-640649/"><code>results/rocm-640649/</code></a> — per-point ROCm logs and suite log</li>
+    <li><a href="rocm-662284/bench_suite_rocm.tsv"><code>results/rocm-662284/bench_suite_rocm.tsv</code></a> — completed ROCm job 662284 TSV</li>
+    <li><a href="rocm-662284/run-config.txt"><code>results/rocm-662284/run-config.txt</code></a> — latest ROCm job configuration</li>
+    <li><a href="bench_suite_rocm.tsv"><code>results/bench_suite_rocm.tsv</code></a> — historical ROCm job 640649 benchmark</li>
+    <li><a href="rocm-640649/"><code>results/rocm-640649/</code></a> — historical per-point ROCm logs and suite log</li>
     <li><a href="../docs/deepep-high-throughput.md"><code>docs/deepep-high-throughput.md</code></a> — chronological HT investigation; early headline is stale</li>
   </ul>
 
-  <footer>Combined measured CUDA and ROCm report. Updated 2026-09-17 from repository CUDA records and ROCm job <code>640649</code>. Ratios are computed only between matching suite rows. Historical CUDA HT measurements and the P/D estimate remain explicitly labeled; no ROCm values are projected.</footer>
+  <footer>Updated 2026-10-03. Job 640649 ROCm measurements remain historical; job 662284 completed all 11 points in 46:46. Latest ratios use matching workload keys from CUDA <code>deepep_low_latency</code>. Request completion and transport do not validate answer correctness; the new fusion configuration remains unverified.</footer>
 </main></body></html>

@@ -1,0 +1,15 @@
+correctness_status=unverified
+image=/iopsstor/scratch/cscs/anowak/img/vllm-rocm-alps7-uccl.sqsh
+model=/iopsstor/scratch/cscs/anowak/hf_cache/hub/models--zai-org--GLM-5.3/snapshots/aca966e4e02791568aa6a4ced368624b3d897f42
+all2all_backend=allgather_reducescatter
+moe_backend=aiter
+linear_backend=aiter
+kv_cache_dtype=fp8_e4m3
+gpu_memory_utilization=0.70
+topology_nodes=4 gpus_per_node=4 total_gpus=16 tensor_parallel=2 data_parallel=8
+max_model_len=32768
+max_num_seqs=64
+enforce_eager=1
+omp_num_threads=1
+aiter_shared_expert_fusion=1
+benchmark_matrix=conc-scaling:1024/128,prompts=4xconc,conc=1,4,16,32,64;prefill:1024,4096,16384/32,prompts=16,conc=8;decode:256/128,512,1024,prompts=16,conc=8

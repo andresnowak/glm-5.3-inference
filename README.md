@@ -1,4 +1,4 @@
-# GLM-5.3 on Alps (Clariden GH200)
+# GLM-5.3 on Alps (GH200 / MI300A)
 
 Serving `zai-org/GLM-5.3` with vLLM + UCCL-EP, so vLLM's DeepEP all2all backends run over
 Slingshot/CXI.
@@ -44,6 +44,82 @@ sbatch --export=ALL,BENCH_PREFILL=1,MAX_MODEL_LEN=131072,PREFILL_LENS="1024 1638
 # high-throughput backend (prefill-oriented; needs both of these)
 sbatch --export=ALL,ALL2ALL=deepep_high_throughput,MOE_BACKEND=deep_gemm,GPU_MEM_UTIL=0.80 sbatch/serve.sbatch
 ```
+
+## ROCm on MI300A
+
+The validated ROCm launchers are now in the repository:
+
+```bash
+# Run from the repository root. Check mi300 availability/account access first.
+sinfo -a -o "%P %a"
+# Slurm opens its output files before the script can create directories.
+mkdir -p /iopsstor/scratch/cscs/anowak/tmp/vllm-rocm-uccl-glm53/glm53-smoke
+
+# Full-model load + one chat completion; shuts down afterward
+sbatch sbatch/serve_rocm.sbatch
+
+# Run the same 11-point matrix as CUDA; shuts down afterward
+sbatch sbatch/benchmark_rocm.sbatch
+
+# Matching CUDA capacity settings for a new comparison run
+sbatch --export=ALL,BENCH_SUITE=1,MAX_MODEL_LEN=32768,MAX_NUM_SEQS=64 sbatch/serve.sbatch
+```
+
+These are site-specific launchers using account `a-csstaff`, partition `mi300`,
+and existing weights under `/iopsstor/scratch/cscs/anowak/hf_cache`.
+The image is `/iopsstor/scratch/cscs/anowak/img/vllm-rocm-alps7-uccl.sqsh`,
+built by `container/Containerfile.rocm` and `container/build-rocm.sh`.
+The launchers use Enroot directly, not `edf/vllm-rocm.toml`. Repository code must
+be under the mounted `/users/anowak` or `/iopsstor`; `HERE` defaults to the
+submission directory and can be exported to select another checkout.
+
+Both use **4 nodes × 4 MI300A GPUs**, TP=2, DP=8, EP=16, one Slurm task per node,
+and vLLM-managed GPU workers (no torchrun). Node 0 hosts one OpenAI API server;
+the other nodes join as headless workers. The current defaults follow the [full GLM-5.3 AMD recipe](https://github.com/vllm-project/recipes/blob/main/models/zai-org/GLM-5.3.yaml):
+AITER sparse MLA, AITER linear and MoE kernels, shared-expert fusion,
+`fp8_e4m3` KV cache, and the `glm47` reasoning parser. This installed vLLM build
+cannot combine AITER MoE with DeepEP low-latency batched experts, so these
+launchers use `allgather_reducescatter` and RCCL `NCCL_NET=Socket` instead.
+Eager execution is retained for this MI300A deployment. The worker selects the
+native sampler to avoid AITER sampler JIT races. The benchmark puts caches under
+`/tmp`; explicit NUMA binding uses nodes 0–3, requires all 192 logical CPUs,
+and is checked before model startup. `OMP_NUM_THREADS=1` avoids oversubscription.
+
+The smoke configuration is 8K context / one sequence / memory utilization 0.70.
+The benchmark defaults to 32K / 64 sequences / **0.70**, matching the CUDA
+comparison's context and concurrency limits. Both call the same
+`scripts/bench_suite.sh` for benchmarking, with the same 11 points and TSV schema.
+Benchmark settings can be overridden via `sbatch --export=ALL,NAME=value`.
+The TSV label identifies the kernels, KV dtype, and all-to-all backend;
+`run-config.txt` records the configuration and `correctness_status=unverified`.
+A benchmark pass means requests completed, **not that answers were correct**.
+**TODO: fix ROCm output correctness before treating these timings as valid model
+performance.** The model currently generates garbled/incorrect text and failed
+a simple `2 + 2` check, including runs without DeepEP and with both Triton and
+AITER MoE. Benchmark completion measures request throughput only, not answer
+quality. The recipe-aligned shared-expert-fusion configuration still needs a
+separate correctness test. No claim is made that the router selected the same
+experts repeatedly.
+The installed ROCm vLLM is 0.27.2-dev, retained intentionally; the website recipe
+lists a newer version baseline. This is a recipe-adapted setup, not an exact
+validated upstream configuration. Startup can take about 30 minutes.
+Logs and outputs go to the Slurm output directory above, under `run-<jobid>/`.
+
+Historical provenance (different defaults: Triton MoE, BF16 KV, UCCL low-latency):
+smoke job **640358** returned HTTP 200; benchmark job **640649** passed all 11
+points. The original smoke answer is no longer available to verify coherence.
+Those timings must not be relabeled as results from the current AITER defaults. The imported smoke launcher now requests
+192 CPUs to match the worker's subsequently added NUMA binding.
+Latest benchmark: job **662284** completed all **11 points** in **46:46** on
+2026-10-03 with the current AITER/shared-fusion defaults. Output throughput at
+concurrency 64 was **154.36 tokens/s** versus the retained CUDA run's **423.12**.
+Raw TSV, run configuration, and point logs are in
+[`results/rocm-662284/`](results/rocm-662284/). Correctness remains unverified.
+Historical results remain in [`results/bench_suite_rocm.tsv`](results/bench_suite_rocm.tsv)
+and [`results/rocm-640649/`](results/rocm-640649/).
+The [CUDA/ROCm HTML comparison](results/results.html) separates both ROCm runs
+and prominently records the correctness TODO. CUDA uses different kernels,
+vLLM versions, and graphs, so this is not an identical-software comparison.
 
 ## Benchmarks
 
@@ -103,7 +179,10 @@ one chat completion and saves it to `completion.json`.
 
 | path | what |
 |---|---|
-| `sbatch/serve.sbatch` | the one serve entrypoint; all knobs documented in its header |
+| `sbatch/serve.sbatch` | CUDA serve entrypoint; all knobs documented in its header |
+| `sbatch/serve_rocm.sbatch` | MI300A serving smoke test |
+| `sbatch/benchmark_rocm.sbatch` | validated MI300A 11-point benchmark |
+| `scripts/serve_worker_rocm.sh` | ROCm vLLM command, one worker launcher per node |
 | `sbatch/download.sbatch` | weight download |
 | `scripts/serve_worker.sh` | runs inside the container, one per node; builds the vLLM command |
 | `scripts/bench_suite.sh` | 11-point matrix: concurrency / prefill / decode |

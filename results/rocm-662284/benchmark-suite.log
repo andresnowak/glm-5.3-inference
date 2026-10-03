@@ -1,0 +1,35 @@
+=== conc-scaling: in=1024 out=128 prompts=4 conc=1 ===
+label	scenario	in_len	out_len	prompts	conc	req_s	out_tok_s	total_tok_s	ttft_ms	tpot_ms	p99_tpot_ms
+=== conc-scaling: in=1024 out=128 prompts=16 conc=4 ===
+label	scenario	in_len	out_len	prompts	conc	req_s	out_tok_s	total_tok_s	ttft_ms	tpot_ms	p99_tpot_ms
+=== conc-scaling: in=1024 out=128 prompts=64 conc=16 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	conc-scaling	1024	128	4	1	0.04	4.59	41.72	2321.47	201.42	211.84
+=== conc-scaling: in=1024 out=128 prompts=128 conc=32 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	conc-scaling	1024	128	16	4	0.13	17.10	155.52	2376.26	216.91	252.12
+=== conc-scaling: in=1024 out=128 prompts=256 conc=64 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	conc-scaling	1024	128	64	16	0.46	59.24	538.72	3691.02	241.96	259.17
+=== prefill: in=1024 out=32 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	conc-scaling	1024	128	128	32	0.79	101.65	924.34	5707.42	271.18	302.76
+=== prefill: in=4096 out=32 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	conc-scaling	1024	128	256	64	1.21	154.36	1403.73	10285.74	336.54	416.61
+=== prefill: in=16384 out=32 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	prefill	1024	32	16	8	0.96	30.88	1030.50	1361.75	223.07	245.07
+=== decode: in=256 out=128 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	prefill	4096	32	16	8	0.57	18.29	2366.69	6286.76	248.16	386.69
+=== decode: in=256 out=512 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	prefill	16384	32	16	8	0.22	7.13	3659.67	23304.75	404.22	829.76
+=== decode: in=256 out=1024 prompts=16 conc=8 ===
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter	decode	256	128	16	8	0.29	36.90	114.16	665.69	213.15	216.41
+=== suite complete: /iopsstor/scratch/cscs/anowak/tmp/vllm-rocm-uccl-glm53/glm53-smoke/run-662284/bench_suite_rocm.tsv ===
+label                                                                    scenario      in_len  out_len  prompts  conc  req_s  out_tok_s  total_tok_s  ttft_ms   tpot_ms  p99_tpot_ms
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  conc-scaling  1024    128      4        1     0.04   4.59       41.72        2321.47   201.42   211.84
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  conc-scaling  1024    128      16       4     0.13   17.10      155.52       2376.26   216.91   252.12
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  conc-scaling  1024    128      64       16    0.46   59.24      538.72       3691.02   241.96   259.17
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  conc-scaling  1024    128      128      32    0.79   101.65     924.34       5707.42   271.18   302.76
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  conc-scaling  1024    128      256      64    1.21   154.36     1403.73      10285.74  336.54   416.61
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  prefill       1024    32       16       8     0.96   30.88      1030.50      1361.75   223.07   245.07
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  prefill       4096    32       16       8     0.57   18.29      2366.69      6286.76   248.16   386.69
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  prefill       16384   32       16       8     0.22   7.13       3659.67      23304.75  404.22   829.76
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  decode        256     128      16       8     0.29   36.90      114.16       665.69    213.15   216.41
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  decode        256     512      16       8     0.07   35.79      54.52        573.59    222.84   226.64
+rocm_moe-aiter_linear-aiter_kv-fp8_e4m3_all2all-allgather_reducescatter  decode        256     1024     16       8     0.03   35.59      44.90        671.09    224.35   224.67
